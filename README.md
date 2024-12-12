@@ -16,3 +16,9 @@ device boot ROM to write a "bitstream" (such as the STM32DDRFW-UTIL utility
 taken from the STMicroelectronics
 [repository](https://github.com/STMicroelectronics/STM32DDRFW-UTIL/tree/main))
 to the internal SRAM of the device.
+
+- `blink_cubeide`: "Blink" program done as an STM32CubeIDE project
+
+### Author
+
+Jakob Kastelic, Stanford Research Systems
