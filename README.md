@@ -11,7 +11,7 @@ working examples.
 
 The files are as follows:
 
-- `uart_boot.ipynb`: Jupyter notebook implementing all the commands used by the
+- `uart_boot`: Jupyter notebook implementing all the commands used by the
 device boot ROM to write a "bitstream" (such as the STM32DDRFW-UTIL utility
 taken from the STMicroelectronics
 [repository](https://github.com/STMicroelectronics/STM32DDRFW-UTIL/tree/main))
