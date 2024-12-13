@@ -1,0 +1,2 @@
+#opt	Id	Name		Type		Device	Offset		Binary
+-	0x01	ddr_test	Binary		none	0x0		STM32MP135C-DK_DDR_UTILITIES_A7.stm32

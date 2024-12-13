@@ -11,11 +11,8 @@ working examples.
 
 The files are as follows:
 
-- `uart_boot`: Jupyter notebook implementing all the commands used by the
-device boot ROM to write a "bitstream" (such as the STM32DDRFW-UTIL utility
-taken from the STMicroelectronics
-[repository](https://github.com/STMicroelectronics/STM32DDRFW-UTIL/tree/main))
-to the internal SRAM of the device.
+- `uart_boot`: Jupyter notebook implementing all the commands used by the device
+  boot ROM to write an executable to the internal SRAM of the device.
 
 - `blink_cubeide`: "Blink" program done as an STM32CubeIDE project
 
