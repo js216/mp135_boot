@@ -17,24 +17,17 @@ taken from the STMicroelectronics
 [repository](https://github.com/STMicroelectronics/STM32DDRFW-UTIL/tree/main)),
 since it is already tested and properly formatted for execution.
 
+An alternative example provided is `blink.stm32`, compiled from the program in
+the directory `blink_cubeide` and formatted in `stm32_header`.
+
 In general, a program on an Arm processor will typically be compiled into an ELF
 object file, which needs to be processed into an executable file with an
-included header. "Each binary image loaded by the ROM code needs to include a
-specific STM32 header added on top of the binary data."
-[[ST wiki: STM32 header for binary files](https://wiki.st.com/stm32mpu/wiki/STM32_header_for_binary_files)]
-
-This can be done with a custom script, or the one provided in the using the
-[STM32CubeMP13 Package](https://www.st.com/en/embedded-software/stm32cubemp13.html).
-In the package (I am using version `STM32Cube_FW_MP13_V1.2.0`), navigate to
-Utilities -> ImageHeader -> Python3.
-
-Note: To obtain the BIN file from an STM32CubeIDE project, open project
-properties and navigate to C/C++ Build -> Settings -> Tool Settings -> MCU/MPU
-Post build outputs. Check the option "Convert to binary file (-O binary)".
+included header. See the `stm32_header` directory in this repository for an
+example of how this is done.
 
 ### Using STM32CubeProgrammer
 
-The same thing, and much more, can also be accomplished using the
+The same thing as this notebook, and much more, can also be accomplished using the
 [`STM32CubeProgrammer`](https://www.st.com/en/development-tools/stm32cubeprog.html)
 using the following command:
 
