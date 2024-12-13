@@ -14,14 +14,14 @@ The files are as follows:
 - `blink_cubeide`: "Blink" program done as an STM32CubeIDE project and uploaded
   to the processor using the on-board STLink debugger in "test boot" mode
 
-- `blink_noide`: "Blink" program done without an IDE, compiled using arm-gcc
-  with a simple Makefile
-
 - `stm32_header`: Jupyter notebook to convert an ELF object file to an
   executable with the correct header file required by the boot ROM
 
 - `uart_boot`: Jupyter notebook implementing all the commands used by the device
   boot ROM to write an executable to the internal SRAM of the device.
+
+- `blink_noide`: "Blink" program done without an IDE, compiled using arm-gcc
+  with a simple Makefile
 
 ### Author
 

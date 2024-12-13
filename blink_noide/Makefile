@@ -7,8 +7,6 @@ LINKSCR    = stm32mp13xx_a7_sysram.ld
 SOURCES = \
 	 Src/main.c \
 	 Drivers/syscalls.c \
-	 Drivers/stm32mp13xx_hal_msp.c \
-	 Drivers/stm32mp13xx_it.cc \
 	 Drivers/mmu_stm32mp13xx.c \
 	 Drivers/system_stm32mp13xx_A7.c \
 	 Drivers/startup_stm32mp135fxx_ca7.c \
@@ -28,7 +26,7 @@ SOURCES = \
 	 Drivers/STM32MP13xx_DISCO/stm32mp13xx_disco_stpmic1.c \
 
 INCLUDES = \
-	 -IInc \
+	 -Isrc \
 	 -IDrivers/CMSIS/Core_A/Include \
 	 -IDrivers/CMSIS/Device/ST/STM32MP13xx/Include \
 	 -IDrivers/STM32MP13xx_HAL_Driver/Inc \

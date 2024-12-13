@@ -15,7 +15,8 @@ defines the recipes for the build process:
 1. Create object (`.o`) files from source code (`.c`).
 2. Link object files into a single executable (`.elf`).
 3. Extract the binary bytes (`.bin`) from the executable.
-4. Prepend the STM32 header (`.stm32`); see `stm32_header` for details on this.
+4. Prepend the STM32 header (`.stm32`); see `stm32_header` for details.
+5. Install the exe to the processor via UART; see `uart_boot` for details.
 
 ### Getting started
 
