@@ -22,9 +22,6 @@ outputs. Check the option "Convert to binary file (-O binary)".
 Follow the steps in the Jupyter notebook to convert an ELF file into an
 executable with the correct STM32 header.
 
-Unlike MP15x, MP23x, MP25x lines, the STM32MP135x does not need the "Binary
-type" field in the STM32 header. Therefore we set it to 0.
-
 ### Author
 
 Jakob Kastelic, Stanford Research Systems
