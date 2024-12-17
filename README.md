@@ -23,6 +23,9 @@ The files are as follows:
 - `blink_noide`: "Blink" program done without an IDE, compiled using arm-gcc
   with a simple Makefile
 
+- `ddr_test`: Initialize DDR3L memory, fill it with pseudorandom bits, and
+  confirm that reading from the memory returns the same bit sequence.
+
 ### Author
 
 Jakob Kastelic, Stanford Research Systems

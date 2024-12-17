@@ -1,6 +1,7 @@
 *.swp
 .settings
 Debug
+build
 __pycache__
 *.pyc
 *.swp
