@@ -126,6 +126,14 @@ def main():
     args = parser.parse_args()
 
     rm = pyvisa.ResourceManager()
+
+    for i in range(3):
+        try:
+            with rm.open_resource(args.com_port) as mp1:
+                pass
+        except pyvisa.errors.VisaIOError:
+            pass
+
     with rm.open_resource(args.com_port) as mp1:
         mp1.baud_rate  = 115200
         mp1.parity     = pyvisa.constants.Parity.even

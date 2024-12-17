@@ -1,5 +1,4 @@
 #include <stdio.h>
-#include <limits.h> // UINT_MAX
 
 #include "stm32mp13xx_hal.h"
 #include "stm32mp13xx_disco.h"
@@ -68,7 +67,7 @@ uint32_t prbs31(uint32_t sr)
 
 void test_ddr(void)
 {
-   const uint32_t num_cycles = UINT_MAX;
+   const uint32_t num_cycles = 512 * 1024 * 1024;
 
    // write pattern to DDR
    printf("Writing to DDR ...\r\n");
@@ -78,9 +77,9 @@ void test_ddr(void)
       *p = sr;
       if (*p != sr)
          Error_Handler();
-      if (i % 1000000 == 0)
-         printf("i=0x%08x / 0x%08x (%04d/1000): wrote *p=0x%08x == 0x%08x\r\n", i,
-               num_cycles, (int)(1000*(double)i/(double)num_cycles), *p, sr);
+      if (i % (1024*1024) == 0)
+         printf("i=0x%08x / 0x%08x (%03d/512): wrote *p=0x%08x == 0x%08x\r\n", i,
+               num_cycles, i/(1024*1024), *p, sr);
       sr = prbs31(sr);
    }
 
@@ -90,9 +89,9 @@ void test_ddr(void)
       uint32_t *p = (uint32_t*)(DRAM_MEM_BASE + i * sizeof(uint32_t) );
       if (*p != sr)
          Error_Handler();
-      if (i % 1000000 == 0)
-         printf("i=0x%08x / 0x%08x (%04d/1000): read  *p=0x%08x == 0x%08x\r\n", i,
-               num_cycles, (int)(1000*(double)i/(double)num_cycles), *p, sr);
+      if (i % (1024*1024) == 0)
+         printf("i=0x%08x / 0x%08x (%03d/512): read  *p=0x%08x == 0x%08x\r\n", i,
+               num_cycles, i/(1024*1024), *p, sr);
       sr = prbs31(sr);
    }
 }
