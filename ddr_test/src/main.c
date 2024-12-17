@@ -67,33 +67,41 @@ uint32_t prbs31(uint32_t sr)
 
 void test_ddr(void)
 {
-   const uint32_t num_cycles = 512 * 1024 * 1024;
+   const uint32_t i0 = 0;
+   const int max_mb = 512;
+   const uint32_t num_cycles = max_mb * 1024 * 1024;
 
    // write pattern to DDR
    printf("Writing to DDR ...\r\n");
    uint32_t sr = 0;
-   for (uint32_t i=0; i<num_cycles; i++) {
-      uint32_t *p = (uint32_t*)(DRAM_MEM_BASE + i * sizeof(uint32_t) );
+   for (uint32_t i=i0; i<num_cycles; i+=sizeof(uint32_t)) {
+      uint32_t *p = (uint32_t*)(DRAM_MEM_BASE + i);
       *p = sr;
-      if (*p != sr)
+      if (*p != sr) {
+         printf("Writing error at i=0x%08x, *p=0x%08x, sr=0x%08x\r\n", i, *p, sr);
          Error_Handler();
+      }
       if (i % (1024*1024) == 0)
-         printf("i=0x%08x / 0x%08x (%03d/512): wrote *p=0x%08x == 0x%08x\r\n", i,
-               num_cycles, i/(1024*1024), *p, sr);
+         printf("i=0x%08x / 0x%08x (%03d/%d): wrote *p=0x%08x == 0x%08x\r\n", i,
+               num_cycles, i/(1024*1024), max_mb, *p, sr);
       sr = prbs31(sr);
    }
 
    // verify DDR write/read
    sr = 0;
-   for (uint32_t i=0; i<num_cycles; i++) {
-      uint32_t *p = (uint32_t*)(DRAM_MEM_BASE + i * sizeof(uint32_t) );
-      if (*p != sr)
+   for (uint32_t i=i0; i<num_cycles; i+=4) {
+      uint32_t *p = (uint32_t*)(DRAM_MEM_BASE + i);
+      if (*p != sr) {
+         printf("Verification error at i=0x%08x, *p=0x%08x, sr=0x%08x\r\n", i, *p, sr);
          Error_Handler();
+      }
       if (i % (1024*1024) == 0)
-         printf("i=0x%08x / 0x%08x (%03d/512): read  *p=0x%08x == 0x%08x\r\n", i,
-               num_cycles, i/(1024*1024), *p, sr);
+         printf("i=0x%08x / 0x%08x (%03d/%d): read  *p=0x%08x == 0x%08x\r\n", i,
+               num_cycles, i/(1024*1024), max_mb, *p, sr);
       sr = prbs31(sr);
    }
+
+   printf("DDR test done.\r\n");
 }
 
 
@@ -111,8 +119,8 @@ int main(void)
 
    setup_ddr();
 
-   for (int i=0; i<5; i++) {
-      printf("Hello World %d\r\n", i++);
+   for (int i=1; i<=5; i++) {
+      printf("Hello World %d\r\n", i);
       HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_14);
       HAL_Delay(1000);
    }
