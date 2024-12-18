@@ -20,9 +20,9 @@ defines the recipes for the build process:
 
 ### Getting started
 
-1. To compile the program, run Make from the build directory:
+1. To compile the program, run Make from this directory:
 
-       $ cd blink_noide/build
+       $ cd blink_noide
        $ make
 
 2. To download the program to the board, run

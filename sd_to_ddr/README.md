@@ -1,17 +1,17 @@
-# DDR memory test
+# Program loading from SD to DDR
 
 This program runs on the STM32MP135F-DK evaluation board, initializing the DDR3L
-memory, then writing a sequence of pseudo-random bits to the memory and reading
-them back to verify if they were correctly written.
+memory and the SD card, then copying an executable from the SD card to the
+memory, and executing it.
 
-This program is adapted from the `DDR_Init` example from the `STM32CubeMP13`
+This program is adapted from the `FSBLA_Sdmmc1` example from the `STM32CubeMP13`
 package provided by ST.
 
 ### Getting started
 
-1. To compile the program, run Make from this directory:
+1. To compile the program, run Make from the build directory:
 
-       $ cd ddr_test
+       $ cd sd_to_ddr/build
        $ make
 
 2. To download the program to the board, run
