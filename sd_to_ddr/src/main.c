@@ -115,14 +115,6 @@ void read_sd_nonblocking(const int app_offset, const int num_blocks)
 //   /* Wait until Application if loaded into DDR from SD storage */
 //   while (RxCplt == 0)
 //      ;
-//
-//   /* LED_BLUE OFF */
-//   BSP_LED_Off(LED_BLUE);
-//
-//   /* Reset_handler of the Application to jump */
-//   void (*p_AppEntryPoint)(void);
-//   p_AppEntryPoint = (void (*)(void))(DRAM_MEM_BASE);
-//   p_AppEntryPoint();
 }
 
 
@@ -145,10 +137,22 @@ int main(void)
       HAL_Delay(1000);
    }
 
-   const int num_blocks = 15;
-   clear_ddr(BLOCKSIZE / sizeof(uint32_t) * num_blocks);
-   read_sd_blocking(0x00, num_blocks);
-   print_ddr(BLOCKSIZE / sizeof(uint32_t) * num_blocks);
+   // optional: clear the DDR memory
+   clear_ddr(BLOCKSIZE / sizeof(uint32_t) * 255);
+
+   // copy from SD card to DDR memory
+   const int prog_loc = 0x4400;
+   const int prog_size = 67228;
+   read_sd_blocking(prog_loc/BLOCKSIZE, 132);
+
+   // print out the first block
+   print_ddr(BLOCKSIZE / 4);
+
+   // jump to application we just loaded into DDR
+   printf("Jumping to app...\r\n");
+   void (*app_entry)(void);
+   app_entry = (void (*)(void))(0xc0000000);
+   app_entry();
 }
 
 // end file main.c

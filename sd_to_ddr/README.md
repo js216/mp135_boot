@@ -9,6 +9,14 @@ package provided by ST.
 
 ### Getting started
 
+Pre-requisites: copy an executable program to the SD card, and adjust the
+location (flash offset) and size of this executable in `main.c`:
+
+    // copy from SD card to DDR memory
+    read_sd_blocking(0x4600/BLOCKSIZE, 132);
+
+A suitable program for execution is given in the `blink_ddr` example.
+
 1. To compile the program, run Make from the build directory:
 
        $ cd sd_to_ddr/build

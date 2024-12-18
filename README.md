@@ -29,6 +29,8 @@ The files are as follows:
 - `sd_to_ddr`: Initialize SD card and DDR memory, then copy program from SD to
   DDR and execute it.
 
+- `blink_ddr`: Same as `blink_noide`, but linked to run out of RAM
+
 ### Author
 
 Jakob Kastelic, Stanford Research Systems
