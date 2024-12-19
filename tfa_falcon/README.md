@@ -144,7 +144,8 @@ add the following configuration option to
     	  `make arm-trusted-firmware-rebuild`.
 
 To implement the effect of this configuration option, add the following to
-`buildroot/boot/arm-trusted-firmware/arm-trusted-firmware.mk`:
+`buildroot/boot/arm-trusted-firmware/arm-trusted-firmware.mk` to ensure that
+Linux is built before TF-A and then included as BL33:
 
     ifeq ($(BR2_TARGET_ARM_TRUSTED_FIRMWARE_LINUX_AS_BL33),y)
     ARM_TRUSTED_FIRMWARE_MAKE_OPTS += BL33=$(BINARIES_DIR)/zImage
