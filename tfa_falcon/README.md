@@ -121,6 +121,15 @@ Instead of carrying out the above steps manually, we can also use the script
 
 5. Load the files to the SD card as in the manual method.
 
+### Notes for Buildroot
+
+Buildroot can also be used to build Arm Trusted Firmware. In that case, we need
+to arrange that it receives the correct `BL33` parameters. For example, we can
+set `BR2_TARGET_ARM_TRUSTED_FIRMWARE_ADDITIONAL_VARIABLES` to include the
+following:
+
+    BL33_CFG=$(BINARIES_DIR)/stm32mp135f-dk.dtb BL33=$(BINARIES_DIR)/zImage"
+
 ### Author
 
 Jakob Kastelic, Stanford Research Systems
