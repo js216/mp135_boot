@@ -7,8 +7,8 @@ This approach is inspired by the ST wiki article
 [How to optimize the boot time](https://wiki.st.com/stm32mpu/wiki/How_to_optimize_the_boot_time),
 under "Optimizing boot-time by removing U-Boot".
 
-There are two ways to get started, either the manual method, or using the
-provided script.
+There are three ways to get started, either the manual method, using the
+provided script, or using Buildroot.
 
 ### Prerequisites
 
@@ -143,6 +143,10 @@ add the following configuration option to
     	  this has to be done manually by invoking
     	  `make arm-trusted-firmware-rebuild`.
 
+This option needs to be selected in the active configuration:
+
+    BR2_TARGET_ARM_TRUSTED_FIRMWARE_LINUX_AS_BL33=y
+
 To implement the effect of this configuration option, add the following to
 `buildroot/boot/arm-trusted-firmware/arm-trusted-firmware.mk` to ensure that
 Linux is built before TF-A and then included as BL33:
@@ -159,6 +163,13 @@ end, define `BR2_GLOBAL_PATCH_DIR` and place the patch file there, i.e., to the
 location
 
     $(BR2_GLOBAL_PATCH_DIR)/arm-trusted-firmware/0001-allow-large-bl33.patch
+
+Since Buildroot does not keep track of when the TF-A or the SD card image need
+to be regenerated, we need to do so manually. After any changes to the kernel
+image, we need to recompile TF-A and recreate the SD card images:
+
+    make arm-trusted-firmware-rebuild
+    make
 
 ### Author
 
