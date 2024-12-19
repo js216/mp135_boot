@@ -1,0 +1,32 @@
+diff --git a/drivers/st/mmc/stm32_sdmmc2.c b/drivers/st/mmc/stm32_sdmmc2.c
+index 917b810c5..6032ab5e9 100644
+--- a/drivers/st/mmc/stm32_sdmmc2.c
++++ b/drivers/st/mmc/stm32_sdmmc2.c
+@@ -345,7 +345,7 @@ static int stm32_sdmmc2_send_cmd_req(struct mmc_cmd *cmd)
+ 
+ 	status = mmio_read_32(base + SDMMC_STAR);
+ 
+-	timeout = timeout_init_us(TIMEOUT_US_10_MS);
++	timeout = timeout_init_us(TIMEOUT_US_10_MS * 5);
+ 
+ 	while ((status & flags_cmd) == 0U) {
+ 		if (timeout_elapsed(timeout)) {
+diff --git a/plat/st/stm32mp1/stm32mp1_def.h b/plat/st/stm32mp1/stm32mp1_def.h
+index 45fc77e45..4d7be11ce 100644
+--- a/plat/st/stm32mp1/stm32mp1_def.h
++++ b/plat/st/stm32mp1/stm32mp1_def.h
+@@ -196,12 +196,12 @@ enum ddr_type {
+ #endif
+ 
+ #if STM32MP13
+-#define STM32MP_BL33_BASE		STM32MP_DDR_BASE
++#define STM32MP_BL33_BASE		(STM32MP_DDR_BASE + U(0x2008000))
+ #endif
+ #if STM32MP15
+ #define STM32MP_BL33_BASE		(STM32MP_DDR_BASE + U(0x100000))
+ #endif
+-#define STM32MP_BL33_MAX_SIZE		U(0x400000)
++#define STM32MP_BL33_MAX_SIZE		U(0x3FF8000)
+ 
+ /* Define maximum page size for NAND devices */
+ #define PLATFORM_MTD_MAX_PAGE_SIZE	U(0x1000)
