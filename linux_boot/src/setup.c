@@ -1,37 +1,12 @@
-#include <stdio.h>
+#include "setup.h"
 
 #include "stm32mp13xx_hal.h"
 #include "stm32mp13xx_disco.h"
 #include "stm32mp13xx_disco_stpmic1.h"
 
-void Error_Handler(void);
-
+// global variables
+DDR_InitTypeDef hddr;
 UART_HandleTypeDef huart4;
-
-void SystemClock_Config(void);
-void PeriphCommonClock_Config(void);
-static void MX_UART4_Init(void);
-
-int main(void)
-{
-   HAL_Init();
-// The following setup calls are unnecessary, since the bootloader already took
-// care of it:
-//    - SystemClock_Config();
-//    - BSP_PMIC_Init();
-//    - BSP_PMIC_InitRegulators();
-//    - PeriphCommonClock_Config();
-//    - BSP_LED_Init(LED_RED);
-//    - BSP_LED_Init(LED_BLUE);
-   MX_UART4_Init();
-
-   int i = 0;
-   while(1) {
-      printf("Hello DDR World %d\r\n", i++);
-      HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_14);
-      HAL_Delay(100);
-   }
-}
 
 void SystemClock_Config(void)
 {
@@ -260,6 +235,53 @@ void PeriphCommonClock_Config(void)
 }
 
 
+void setup_ddr(void)
+{
+   // MCE and TZC config
+   __HAL_RCC_MCE_CLK_ENABLE();
+   __HAL_RCC_TZC_CLK_ENABLE();
+
+   // configure TZC to allow DDR Region0 R/W non secure for all IDs
+   TZC->GATE_KEEPER     = 0;
+   TZC->REG_ID_ACCESSO  = 0xFFFFFFFF;  // Allow DDR Region0 R/W non secure for all IDs
+   TZC->REG_ATTRIBUTESO = 0xC0000001;
+   TZC->GATE_KEEPER     |= 1;          // Enable the access in secure Mode  // filter 0 request close
+
+   // enable ETZPC & BACKUP SRAM for security
+   __HAL_RCC_ETZPC_CLK_ENABLE();
+   __HAL_RCC_BKPSRAM_CLK_ENABLE();
+
+   // unlock debugger
+   BSEC->BSEC_DENABLE = 0x47f;
+
+   // enable clock debug CK_DBG
+   RCC->DBGCFGR |= RCC_DBGCFGR_DBGCKEN;
+
+   // init DDR
+   hddr.wakeup_from_standby = false;
+   hddr.self_refresh = false;
+   hddr.zdata = 0;
+   hddr.clear_bkp = false;
+
+   if (HAL_DDR_Init(&hddr) != HAL_OK)
+      Error_Handler();
+}
+
+
+int HAL_DDR_MspInit(ddr_type type)
+{
+   if (type == STM32MP_DDR3)
+   {
+      STPMU1_Regulator_Voltage_Set(STPMU1_BUCK2, 1350);
+      STPMU1_Regulator_Enable(STPMU1_BUCK2);
+      HAL_Delay(1);
+      STPMU1_Regulator_Enable(STPMU1_VREFDDR);
+      HAL_Delay(1);
+   }
+   return 0;
+}
+
+
 void HAL_UART_MspInit(UART_HandleTypeDef* huart)
 {
    GPIO_InitTypeDef GPIO_InitStruct;
@@ -309,7 +331,86 @@ void HAL_UART_MspDeInit(UART_HandleTypeDef* huart)
 }
 
 
-static void MX_UART4_Init(void)
+void HAL_SD_MspInit(SD_HandleTypeDef *hsd)
+{
+   GPIO_InitTypeDef GPIO_Init_Structure;
+
+   /* Enable SDMMC Clock */
+   __HAL_RCC_SDMMC1_CLK_ENABLE();
+   /* Force the SDMMC Periheral Clock Reset */
+   __HAL_RCC_SDMMC1_FORCE_RESET();
+   /* Release the SDMMC Periheral Clock Reset */
+   __HAL_RCC_SDMMC1_RELEASE_RESET();
+
+   /* Enable GPIOs clock */
+   __HAL_RCC_GPIOA_CLK_ENABLE();
+   __HAL_RCC_GPIOB_CLK_ENABLE();
+   __HAL_RCC_GPIOC_CLK_ENABLE();
+   __HAL_RCC_GPIOD_CLK_ENABLE();
+   __HAL_RCC_GPIOE_CLK_ENABLE();
+   __HAL_RCC_GPIOF_CLK_ENABLE();
+   __HAL_RCC_GPIOG_CLK_ENABLE();
+   __HAL_RCC_GPIOH_CLK_ENABLE();
+
+   /* Common GPIO configuration */
+   GPIO_Init_Structure.Mode      = GPIO_MODE_AF_PP;
+   GPIO_Init_Structure.Pull      = GPIO_NOPULL;
+   GPIO_Init_Structure.Speed     = GPIO_SPEED_FREQ_HIGH;
+
+   /* Common GPIO configuration */
+   GPIO_Init_Structure.Mode      = GPIO_MODE_AF_PP;
+   GPIO_Init_Structure.Speed     = GPIO_SPEED_FREQ_HIGH;
+
+   /* D0 D1 D2 D3 CK on PC8 PC9 PC10 PC11 PC12 - AF12 NOPULL*/
+   GPIO_Init_Structure.Pull      = GPIO_NOPULL;
+   GPIO_Init_Structure.Alternate = GPIO_AF12_SDIO1;
+   GPIO_Init_Structure.Pin       = GPIO_PIN_8 | GPIO_PIN_9 | GPIO_PIN_10 | GPIO_PIN_11 | GPIO_PIN_12;
+   HAL_GPIO_Init(GPIOC, &GPIO_Init_Structure);
+
+   /* CMD on PD2 - AF12 NOPULL*/
+   GPIO_Init_Structure.Pull      = GPIO_NOPULL;
+   GPIO_Init_Structure.Alternate = GPIO_AF12_SDIO1;
+   GPIO_Init_Structure.Pin       = GPIO_PIN_2;
+   HAL_GPIO_Init(GPIOD, &GPIO_Init_Structure);
+
+   /* CKIN on PB15 - AF8 NOPULL*/
+   GPIO_Init_Structure.Pull      = GPIO_NOPULL;
+   GPIO_Init_Structure.Alternate = GPIO_AF8_SDIO1;
+   GPIO_Init_Structure.Pin       = GPIO_PIN_15;
+   HAL_GPIO_Init(GPIOB, &GPIO_Init_Structure);
+
+   /* D4 on PB14 - AF11 NOPULL*/
+   GPIO_Init_Structure.Pull      = GPIO_NOPULL;
+   GPIO_Init_Structure.Alternate = GPIO_AF11_SDIO1;
+   GPIO_Init_Structure.Pin       = GPIO_PIN_14;
+   HAL_GPIO_Init(GPIOB, &GPIO_Init_Structure);
+
+   /* D5 on PB12 - AF12 NOPULL*/
+   GPIO_Init_Structure.Pull      = GPIO_NOPULL;
+   GPIO_Init_Structure.Alternate = GPIO_AF12_SDIO1;
+   GPIO_Init_Structure.Pin       = GPIO_PIN_12;
+   HAL_GPIO_Init(GPIOB, &GPIO_Init_Structure);
+
+   /* D6 on PC6 - AF8 NOPULL*/
+   GPIO_Init_Structure.Pull      = GPIO_NOPULL;
+   GPIO_Init_Structure.Alternate = GPIO_AF8_SDIO1;
+   GPIO_Init_Structure.Pin       = GPIO_PIN_6;
+   HAL_GPIO_Init(GPIOC, &GPIO_Init_Structure);
+
+   /* D7 on PC7 - AF12 NOPULL*/
+   GPIO_Init_Structure.Pull      = GPIO_NOPULL;
+   GPIO_Init_Structure.Alternate = GPIO_AF10_SDIO1;
+   GPIO_Init_Structure.Pin       = GPIO_PIN_7;
+   HAL_GPIO_Init(GPIOC, &GPIO_Init_Structure);
+
+
+   /* Enable configuration for SDMMC interrupts */
+   IRQ_SetPriority(SDMMC1_IRQn, 0x00);
+   IRQ_Enable(SDMMC1_IRQn);
+}
+
+
+void MX_UART4_Init(void)
 {
    huart4.Instance = UART4;
    huart4.Init.BaudRate = 115200;
@@ -361,7 +462,11 @@ int __io_getchar (void)
 
 void Error_Handler(void)
 {
+   while (1) {
+      BSP_LED_Toggle(LED_RED);
+      HAL_Delay(1000);
+   }
 }
 
-// end file main.c
+// end file setup.c
 

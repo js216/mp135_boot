@@ -8,29 +8,34 @@
 
 #include "setup.h"
 
-#define READ_TIMEOUT       3000
+#define READ_TIMEOUT 15000
 
 // global variables
-__IO uint8_t RxCplt;
 SD_HandleTypeDef SDHandle;
 
-void clear_ddr(const int num_words)
+void clear_ddr(uint32_t *ddr_addr, const int num_words)
 {
    for (int i=0; i<num_words; i++) {
-      uint32_t *p = (uint32_t*)(DRAM_MEM_BASE + 4*i);
+      uint32_t *p = ddr_addr + 4*i;
       *p = 0;
    }
 }
 
-void print_ddr(const int num_words)
+/**
+ * @brief Print from DDR memory in the `hexdump -l 16` format.
+ *
+ * @param ddr_addr Where in DDR to get the data from.
+ * @param num_words How many 32-bit words to print.
+ */
+void print_ddr(uint32_t *ddr_addr, const int num_words)
 {
    for (int i=0; i<num_words/4; i+=4) {
       // print address
-      printf("0x%08x : ", 4*i);
+      printf("0x%08x : ", ddr_addr + 4*i);
 
       // print in hex
       for (int j=0; j<4; j++) {
-         uint32_t *p = (uint32_t*)(DRAM_MEM_BASE + 4*(i+j));
+         uint32_t *p = ddr_addr + i + j;
          const int i0 = *p;
          for (int k=0; k<4; k++) {
             const char c = (i0 & (0xff << k*8)) >> k*8;
@@ -41,7 +46,7 @@ void print_ddr(const int num_words)
 
       // print as ASCII
       for (int j=0; j<4; j++) {
-         uint32_t *p = (uint32_t*)(DRAM_MEM_BASE + 4*(i+j));
+         uint32_t *p = ddr_addr + i + j;
          const int i0 = *p;
          for (int k=0; k<4; k++) {
             const char c = (i0 & (0xff << k*8)) >> k*8;
@@ -86,35 +91,32 @@ void setup_sd(void)
 }
 
 
-void read_sd_blocking(const int app_offset, const int num_blocks)
+/**
+ * @brief Load data from SD card to DDR memory.
+ *
+ * @param ddr_addr Where in DDR to place the copied data.
+ * @param sd_offset Offset in blocks (sectors).
+ * @param num_blocks How many blocks to copy.
+ */
+void load_blocking(uint8_t *ddr_addr, const int sd_offset, const int num_blocks)
 {
-   if (HAL_SD_ReadBlocks(&SDHandle, (uint8_t*)DRAM_MEM_BASE, app_offset, num_blocks, READ_TIMEOUT) != HAL_OK) {
+   printf("Loading %5d blocks to ddr_addr=0x%08x from SD offset 0x%08x ...\r\n",
+         num_blocks, ddr_addr, sd_offset);
+
+   HAL_StatusTypeDef res = HAL_SD_ReadBlocks(
+         &SDHandle,
+         ddr_addr,
+         sd_offset,
+         num_blocks,
+         READ_TIMEOUT
+   );
+
+   if (res == HAL_TIMEOUT)
+      printf("HAL_TIMEOUT in HAL_SD_ReadBlocks()\r\n");
+   else if (res != HAL_OK) {
       printf("Error in HAL_SD_ReadBlocks()\r\n");
       Error_Handler();
    }
-}
-
-void HAL_SD_RxCpltCallback(SD_HandleTypeDef *hsd)
-{
-   while (HAL_SD_GetCardState(&SDHandle) != HAL_SD_CARD_TRANSFER) {}
-   RxCplt=1;
-}
-
-
-void read_sd_nonblocking(const int app_offset, const int num_blocks)
-{
-//
-//   /* Read application from the SD */
-//   RxCplt = 0;
-//   uint32_t exampleOffset = 0x00;
-//   if (HAL_SD_ReadBlocks_DMA(&SDHandle, (uint8_t*)DRAM_MEM_BASE, app_offset, num_blocks) != HAL_OK) {
-//      printf("Error in HAL_SD_ReadBlocks_DMA()\r\n");
-//      Error_Handler();
-//   }
-//
-//   /* Wait until Application if loaded into DDR from SD storage */
-//   while (RxCplt == 0)
-//      ;
 }
 
 
@@ -131,28 +133,30 @@ int main(void)
    setup_ddr();
    setup_sd();
 
-   for (int i=1; i<=5; i++) {
+   for (int i=1; i<=3; i++) {
       printf("Hello World %d\r\n", i);
       HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_14);
       HAL_Delay(1000);
    }
 
-   // optional: clear the DDR memory
-   clear_ddr(BLOCKSIZE / sizeof(uint32_t) * 255);
+   const uint32_t addr_kernel = 0xC2000000;
+   const uint32_t addr_dtb    = 0xC6000000;
 
-   // copy from SD card to DDR memory
-   const int prog_loc = 0x00;
-   const int prog_size = 67228;
-   read_sd_blocking(prog_loc/BLOCKSIZE, 132);
+   // copy DTB and kernel from SD card to DDR memory
+   load_blocking((uint8_t*)addr_dtb,    2048, 121);
+   load_blocking((uint8_t*)addr_kernel, 4096, 14855);
 
-   // print out the first block
-   print_ddr(BLOCKSIZE / 4);
+   // print out the first block of the kernel and DTB:
+   printf("First block of the kernel image:\r\n");
+   print_ddr((uint32_t*)addr_kernel, 512);
+   printf("\nFirst block of the DTB:\r\n");
+   print_ddr((uint32_t*)addr_dtb, 512);
+   printf("Jumping to kernel...\r\n");
 
-   // jump to application we just loaded into DDR
-   printf("Jumping to app...\r\n");
-   void (*app_entry)(void);
-   app_entry = (void (*)(void))(0xc0000000);
-   app_entry();
+   // jump to kernel, passsing DTB via register r2
+   typedef void (*kernel_entry_t)(uint32_t, uint32_t, uint32_t);
+   kernel_entry_t kernel_entry = (kernel_entry_t)addr_kernel;
+   kernel_entry(0, 0, addr_dtb);
 }
 
 // end file main.c

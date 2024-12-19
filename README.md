@@ -18,18 +18,21 @@ The files are as follows:
   executable with the correct header file required by the boot ROM
 
 - `uart_boot`: Jupyter notebook implementing all the commands used by the device
-  boot ROM to write an executable to the internal SRAM of the device.
+  boot ROM to write an executable to the internal SRAM of the device
 
 - `blink_noide`: "Blink" program done without an IDE, compiled using arm-gcc
   with a simple Makefile
 
 - `ddr_test`: Initialize DDR3L memory, fill it with pseudorandom bits, and
-  confirm that reading from the memory returns the same bit sequence.
+  confirm that reading from the memory returns the same bit sequence
 
 - `sd_to_ddr`: Initialize SD card and DDR memory, then copy program from SD to
-  DDR and execute it.
+  DDR and execute it
 
 - `blink_ddr`: Same as `blink_noide`, but linked to run out of RAM
+
+- `linux_boot`: (Work in progress!) Load a DTB and compressed kernel image to
+  DDR and run it
 
 ### Author
 
