@@ -50,7 +50,13 @@ correctly. After the kernel is started, it will also require a root filesystem.
 
        #define STM32MP_BL33_MAX_SIZE          U(0x3FF8000)
 
-3. Build TF-A:
+3.   Alternatively, the changes to both of the files in step 2 can be done using
+     the provided patch file:
+
+         cd arm-trusted-firmware
+         patch -p1 < ../bl2.patch
+
+4. Build TF-A:
 
        /usr/bin/make -j25 \
           CROSS_COMPILE="arm-linux-gnueabi-" \
@@ -73,7 +79,7 @@ correctly. After the kernel is started, it will also require a root filesystem.
    `BL33` to point to the three OP-TEE binaries, the DTB for the kernel, and the
    kernel itself (see prerequisites).
 
-5. The finished binaries are located under
+6. The finished binaries are located under
    `arm-trusted-firmware/build/stm32mp1/release`. The two files we need from
    here are the TF-A itself (`tf-a-stm32mp135f-dk.stm32`) and the firmware
    package containing OP-TEE and the Linux kernel (`fip.bin`).

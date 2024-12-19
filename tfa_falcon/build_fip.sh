@@ -2,11 +2,11 @@
 
 # known starting point
 cd arm-trusted-firmware
-rm -r build
+rm -rf build
 git reset --hard
 
 # apply patch to increase max allowed size of BL33
-git apply ../bl2.patch
+patch -p1 < ../bl2.patch
 
 # compile with lots of options
 /usr/bin/make -j25 \
