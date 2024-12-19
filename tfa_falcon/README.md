@@ -116,8 +116,8 @@ Instead of carrying out the above steps manually, we can also use the script
 
 4. Run the script:
 
-    $ cd tfa_falcon
-    $ ./build_fip.sh
+       $ cd tfa_falcon
+       $ ./build_fip.sh
 
 5. Load the files to the SD card as in the manual method.
 
