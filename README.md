@@ -34,6 +34,9 @@ The files are as follows:
 - `linux_boot`: (Work in progress!) Load a DTB and compressed kernel image to
   DDR and run it
 
+- `tfa_falcon`: Use Arm Trusted Firmware (TF-A) to load the Linux kernel without
+  U-Boot, a variant of "falcon mode" boot.
+
 ### Author
 
 Jakob Kastelic, Stanford Research Systems
