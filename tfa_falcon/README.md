@@ -125,10 +125,39 @@ Instead of carrying out the above steps manually, we can also use the script
 
 Buildroot can also be used to build Arm Trusted Firmware. In that case, we need
 to arrange that it receives the correct `BL33` parameters. For example, we can
-set `BR2_TARGET_ARM_TRUSTED_FIRMWARE_ADDITIONAL_VARIABLES` to include the
-following:
+add the following configuration option to
+`buildroot/boot/arm-trusted-firmware/Config.in`:
 
-    BL33_CFG=$(BINARIES_DIR)/stm32mp135f-dk.dtb BL33=$(BINARIES_DIR)/zImage"
+    config BR2_TARGET_ARM_TRUSTED_FIRMWARE_LINUX_AS_BL33
+    	bool "Linux kernel"
+    	depends on BR2_LINUX_KERNEL
+    	help
+    	  This option allows to embed the Linux kernel as the BL33 part of the
+    	  ARM Trusted Firmware.
+
+    	  Do not choose this option if you intend to use U-Boot or another
+    	  second-stage bootloader. With this option, TF-A starts Linux directly.
+
+    	  With this option chosen, whenever the Linux zImage changes, TF-A needs
+    	  to be re-built. Since Buildroot does not track package dependencies,
+    	  this has to be done manually by invoking
+    	  `make arm-trusted-firmware-rebuild`.
+
+To implement the effect of this configuration option, add the following to
+`buildroot/boot/arm-trusted-firmware/arm-trusted-firmware.mk`:
+
+    ifeq ($(BR2_TARGET_ARM_TRUSTED_FIRMWARE_LINUX_AS_BL33),y)
+    ARM_TRUSTED_FIRMWARE_MAKE_OPTS += BL33=$(BINARIES_DIR)/zImage
+    ARM_TRUSTED_FIRMWARE_MAKE_OPTS += BL33_CFG=$(BINARIES_DIR)/$(LINUX_DTBS)
+    ARM_TRUSTED_FIRMWARE_DEPENDENCIES += linux
+    endif
+
+Finally, the patch that modifies the TF-A source code (step 2 of the manual
+method, above) needs to be in a location where Buildroot can find it. To this
+end, define `BR2_GLOBAL_PATCH_DIR` and place the patch file there, i.e., to the
+location
+
+    $(BR2_GLOBAL_PATCH_DIR)/arm-trusted-firmware/0001-allow-large-bl33.patch
 
 ### Author
 
