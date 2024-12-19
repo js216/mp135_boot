@@ -52,22 +52,22 @@ correctly. After the kernel is started, it will also require a root filesystem.
 
 3. Build TF-A:
 
-    /usr/bin/make -j25 \
-       CROSS_COMPILE="arm-linux-gnueabi-" \
-       BUILD_STRING=custom \
-       STM32MP_SDMMC=1 \
-       DTB_FILE_NAME=stm32mp135f-dk.dtb \
-       STM32MP_USB_PROGRAMMER=1 \
-       PLAT=stm32mp1 \
-       ARM_ARCH_MAJOR=7 \
-       ARCH=aarch32 \
-       AARCH32_SP=optee \
-       BL32=/home/jk/srs_os/build/images/tee-header_v2.bin \
-       BL32_EXTRA1=/home/jk/srs_os/build/images/tee-pager_v2.bin \
-       BL32_EXTRA2=/home/jk/srs_os/build/images/tee-pageable_v2.bin \
-       BL33_CFG=/home/jk/srs_os/build/images/stm32mp135f-dk.dtb \
-       BL33=/home/jk/srs_os/build/build/linux-custom/arch/arm/boot/zImage \
-       all fip
+       /usr/bin/make -j25 \
+          CROSS_COMPILE="arm-linux-gnueabi-" \
+          BUILD_STRING=custom \
+          STM32MP_SDMMC=1 \
+          DTB_FILE_NAME=stm32mp135f-dk.dtb \
+          STM32MP_USB_PROGRAMMER=1 \
+          PLAT=stm32mp1 \
+          ARM_ARCH_MAJOR=7 \
+          ARCH=aarch32 \
+          AARCH32_SP=optee \
+          BL32=/home/jk/srs_os/build/images/tee-header_v2.bin \
+          BL32_EXTRA1=/home/jk/srs_os/build/images/tee-pager_v2.bin \
+          BL32_EXTRA2=/home/jk/srs_os/build/images/tee-pageable_v2.bin \
+          BL33_CFG=/home/jk/srs_os/build/images/stm32mp135f-dk.dtb \
+          BL33=/home/jk/srs_os/build/build/linux-custom/arch/arm/boot/zImage \
+          all fip
 
    Be sure to adjust `BL32`, `BL32_EXTRA1`, `BL32_EXTRA2`, `BL33_CFG`, and
    `BL33` to point to the three OP-TEE binaries, the DTB for the kernel, and the
