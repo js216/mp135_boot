@@ -5,7 +5,9 @@ directly, without using U-Boot.
 
 This approach is inspired by the ST wiki article
 [How to optimize the boot time](https://wiki.st.com/stm32mpu/wiki/How_to_optimize_the_boot_time),
-under "Optimizing boot-time by removing U-Boot".
+under "Optimizing boot-time by removing U-Boot". Note that as per the
+[ST forum](https://community.st.com/t5/stm32-mpus-embedded-software-and/start-linux-kernel-from-tf-a/td-p/91321),
+this approach is NOT officially supported by ST.
 
 There are three ways to get started, either the manual method, using the
 provided script, or using Buildroot.

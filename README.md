@@ -35,7 +35,10 @@ The files are as follows:
   DDR and run it
 
 - `tfa_falcon`: Use Arm Trusted Firmware (TF-A) to load the Linux kernel without
-  U-Boot, a variant of "falcon mode" boot.
+  U-Boot, a variant of "falcon mode" boot
+
+- `unsecure_stpmic1`: Use the STPMIC1 driver from Linux kernel rather than
+  OP-TEE
 
 ### Author
 
