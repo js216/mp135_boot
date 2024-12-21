@@ -16,7 +16,7 @@ and OP-TEE using TF-A, without U-Boot (see `tfa_falcon`).
 
 1. In the OP-TEE device tree source, locate the line
 
-    DECPROT(STM32MP1_ETZPC_I2C4_ID, DECPROT_S_RW, DECPROT_UNLOCK)
+       DECPROT(STM32MP1_ETZPC_I2C4_ID, DECPROT_S_RW, DECPROT_UNLOCK)
 
    and change `DECPROT_S_RW` to `DECPROT_NS_RW`. This configures the ETZPC
    peripheral to allow access to the I2C4 peripheral from the non-secure world,
