@@ -31,7 +31,7 @@ and OP-TEE using TF-A, without U-Boot (see `tfa_falcon`).
 
 2. Move the entire `&i2c4 {...}` tree from the OP-TEE device tree source to the
    Linux DTS (about 180 lines of code!). OP-TEE will not need to know about
-   I2C4, but Linux will.
+   I2C4 and STPMIC1, but Linux will.
 
 3. Notice that the `$i2c4` tree refers to `pinctrl-0 = <&i2c4_pins_a>`, which is
    not defined by default. Without it, the driver will not know what pins we're
@@ -49,7 +49,8 @@ and OP-TEE using TF-A, without U-Boot (see `tfa_falcon`).
        	};
        };
 
-4. Remove all references to voltage regulators from the OP-TEE DTS.
+4. Remove all references to voltage regulators from the OP-TEE DTS. In
+   particular, search for `scmi` and remove dependencies on anything SCMI.
 
 5. Behind the scenes, two more things refer to regulators in the OP-TEE files.
    In `core/arch/arm/dts/stm32mp131.dtsi`, remove the following lines:
@@ -120,6 +121,9 @@ and OP-TEE using TF-A, without U-Boot (see `tfa_falcon`).
        	dev_err(dev, "IRQ Chip registration failed: %d\n", ret);
        	return ret;
        }
+
+7. Remove all references to SCMI from the Linux DTS, making sure they are
+   replaced with corresponding references to the STPMIC1.
 
 ### Author
 
