@@ -38,7 +38,7 @@ The files are as follows:
   U-Boot, a variant of "falcon mode" boot
 
 - `unsecure_stpmic1`: Use the STPMIC1 driver from Linux kernel rather than
-  OP-TEE
+  OP-TEE, as well as other simplifications.
 
 ### Author
 
