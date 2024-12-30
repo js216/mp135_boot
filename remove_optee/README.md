@@ -1,21 +1,21 @@
-# STPMIC1 Linux kernel driver with STM32MP135
+# Run Linux on STM32MP135 without OP-TEE
 
 In this example, we show how to reassign the STPMIC1 from the trusted execution
 environment (OP-TEE) to the "untrusted" Linux kernel. In this way, the I2C4 can
-be unsecured and used directly from the kernel and userspace.
+be unsecured and used directly from the kernel and userspace. Later, we show how
+to configure all clocks and ETZPC from Arm Trusted Firmware (TF-A), so that
+OP-TEE does not have to be used for this purpose.
 
-Later, we show how to configure all clocks from Arm Trusted Firmware (TF-A), so
-that OP-TEE does not have to be used for this purpose.
-
-Note that this is NOT supported by official ST resources, where the secure OS is
-strongly recommended to be used for power management, using the SCMI interface.
+Note that removing OP-TEE is NOT supported by official ST resources, where the
+secure OS is strongly recommended to be used for power management using the SCMI
+interface, clock configuration, ETZPC setup, etc.
 
 ### Prerequisites
 
 This example assumes a running Buildroot-based configuration that boots Linux
 and OP-TEE using TF-A, without U-Boot (see `tfa_falcon`).
 
-### Steps to getting it working
+### STPMIC1 Linux kernel driver with STM32MP135
 
 1. In the OP-TEE device tree source, locate the line
 
@@ -128,6 +128,11 @@ and OP-TEE using TF-A, without U-Boot (see `tfa_falcon`).
 7. Remove all references to SCMI from the Linux DTS, making sure they are
    replaced with corresponding references to the STPMIC1.
 
+Instead of following the above steps, we can also make the changes to the Linux
+files by applying the patch file `0003-fix-stpmic1.patch`. The changes to OP-TEE
+files still need to be done manually, unless we want to remove OP-TEE entirely,
+in which case the changes are not necessary and will be discarded at the end.
+
 ### Further cleanup
 
 1. From the OP-TEE DTS, we can remove the lines
@@ -158,10 +163,10 @@ and OP-TEE using TF-A, without U-Boot (see `tfa_falcon`).
 
    Now OP-TEE will complain that "VDD regulator not found". So we also need to
    remove the part that requires the regulator. In
-   `core/arch/arm/plat-stm32mp1/drivers`, comment out the body of the function
-   `stm32mp_syscfg_set_hslv()`, except for `return TEE_SUCCESS;`. This function
-   is not needed so long as we do not intend to use the HSLV mode, i.e., OTP18
-   bit 13 is not set, and VDD is not below 2.5 V.
+   `core/arch/arm/plat-stm32mp1/drivers/stm32mp1_syscfg.c`, comment out the body
+   of the function `stm32mp_syscfg_set_hslv()`, except for `return
+   TEE_SUCCESS;`. This function is not needed so long as we do not intend to use
+   the HSLV mode, i.e., OTP18 bit 13 is not set, and VDD is not below 2.5 V.
 
 2. Remove `serial1 = &usart1;` from the `aliases { ... }` section.
 
@@ -510,8 +515,145 @@ and OP-TEE using TF-A, without U-Boot (see `tfa_falcon`).
    This is needed because of a bug in the OP-TEE rcc driver, where it attempts
    to set the dividers and clocks even if none are provided.
 
-Now all the clocks are effectively set by TF-A. The only task that OP-TEE has is
-to configure the ETZPC to allow certain non-secure accesses.
+Now all the clocks are effectively set by TF-A. The only task that OP-TEE has
+left is to configure the ETZPC to allow certain non-secure accesses.
+
+# How to configure ETZPC from TF-A
+
+To relieve OP-TEE of the ETZPC configuration duty, follow these steps:
+
+1. To include the ETZPC driver in the Arm Trusted Firmware (TF-A) makefile, add
+   the following line at the end of `plat/st/common/common.mk`:
+
+       BL2_SOURCES		+=	drivers/st/etzpc/etzpc.c
+
+2. In the STM32MP1 platform files included in TF-A, the ETZPC DECPROT
+   assignments are incorrect. Replace all of `STM32MP1_ETZPC_` defines in
+   `plat/st/stm32mp1/stm32mp1_def.h` with the values given in Table 85, "DECPROT
+   assignment", of the STM32MP13xx Reference manual:
+
+       #define STM32MP1_ETZPC_VREFBUF_ID	0
+       #define STM32MP1_ETZPC_LPTIM2_ID	1
+       #define STM32MP1_ETZPC_LPTIM3_ID	2
+       #define STM32MP1_ETZPC_LTDC_ID		3
+       #define STM32MP1_ETZPC_DCMIPP_ID	4
+       #define STM32MP1_ETZPC_USBPHYCTRL_ID	5
+       #define STM32MP1_ETZPC_DDRCTRLPHY_ID	6
+       #define STM32MP1_ETZPC_IWDG1_ID		12
+       #define STM32MP1_ETZPC_STGENC_ID	13
+       #define STM32MP1_ETZPC_USART1_ID	16
+       #define STM32MP1_ETZPC_USART2_ID	17
+       #define STM32MP1_ETZPC_SPI4_ID		18
+       #define STM32MP1_ETZPC_SPI5_ID		19
+       #define STM32MP1_ETZPC_I2C3_ID		20
+       #define STM32MP1_ETZPC_I2C4_ID		21
+       #define STM32MP1_ETZPC_I2C5_ID		22
+       #define STM32MP1_ETZPC_TIM12_ID		23
+       #define STM32MP1_ETZPC_TIM13_ID		24
+       #define STM32MP1_ETZPC_TIM14_ID		25
+       #define STM32MP1_ETZPC_TIM15_ID		26
+       #define STM32MP1_ETZPC_TIM16_ID		27
+       #define STM32MP1_ETZPC_TIM17_ID		28
+       #define STM32MP1_ETZPC_ADC1_ID		32
+       #define STM32MP1_ETZPC_ADC2_ID		33
+       #define STM32MP1_ETZPC_OTG_ID		34
+       #define STM32MP1_ETZPC_RNG_ID		40
+       #define STM32MP1_ETZPC_HASH_ID		41
+       #define STM32MP1_ETZPC_CRYP_ID		42
+       #define STM32MP1_ETZPC_SAES_ID		43
+       #define STM32MP1_ETZPC_PKA_ID		44
+       #define STM32MP1_ETZPC_BKPSRAM_ID	45
+       #define STM32MP1_ETZPC_ETH1_ID		48
+       #define STM32MP1_ETZPC_ETH2_ID		49
+       #define STM32MP1_ETZPC_SDMMC1_ID	50
+       #define STM32MP1_ETZPC_SDMMC2_ID	51
+       #define STM32MP1_ETZPC_MCE_ID		53
+       #define STM32MP1_ETZPC_FMC_ID		54
+       #define STM32MP1_ETZPC_QSPI_ID		55
+       #define STM32MP1_ETZPC_SRAM1_ID		60
+       #define STM32MP1_ETZPC_SRAM2_ID		61
+       #define STM32MP1_ETZPC_SRAM3_ID		62
+
+
+3. Add the ETZPC node to the TF-A DTS file (`fdts/stm32mp131.dtsi`), under `soc
+   { ... }`:
+
+       etzpc: etzpc@5c007000 {
+       	compatible = "st,stm32mp13-etzpc";
+       	reg = <0x5c007000 0x400>;
+       	clocks = <&rcc TZPC>;
+       	#address-cells = <1>;
+       	#size-cells = <1>;
+       };
+
+4. In the platform-specific TF-A BL2 (that is, bootloader) file
+   `plat/st/stm32mp1/bl2_plat_setup.c`, add the ETZPC driver header file:
+
+       #include <drivers/st/etzpc.h>
+
+   Later in the same file, at the end of the function `bl2_platform_setup()`,
+   add the desired ETZPC configuration:
+
+       /* Configure ETZPC */
+       if (etzpc_init() != 0) {
+       	panic();
+       }
+       etzpc_configure_decprot(STM32MP1_ETZPC_SDMMC1_ID, ETZPC_DECPROT_NS_RW);
+
+5. Repeat this process with as many `etzpc_configure_decprot()` calls as
+   required for one's needs. For example, to duplicate the OP-TEE configuration
+   (except for unsecuring I2C4, as per the steps at the beginning of this
+   guide), we need the following:
+
+       etzpc_configure_decprot(STM32MP1_ETZPC_ADC1_ID,       ETZPC_DECPROT_NS_RW);
+       etzpc_configure_decprot(STM32MP1_ETZPC_ADC2_ID,       ETZPC_DECPROT_S_RW);
+       etzpc_configure_decprot(STM32MP1_ETZPC_BKPSRAM_ID,    ETZPC_DECPROT_S_RW);
+       etzpc_configure_decprot(STM32MP1_ETZPC_CRYP_ID,       ETZPC_DECPROT_NS_RW);
+       etzpc_configure_decprot(STM32MP1_ETZPC_DCMIPP_ID,     ETZPC_DECPROT_NS_RW);
+       etzpc_configure_decprot(STM32MP1_ETZPC_DDRCTRLPHY_ID, ETZPC_DECPROT_NS_R_S_W);
+       etzpc_configure_decprot(STM32MP1_ETZPC_ETH1_ID,       ETZPC_DECPROT_NS_RW);
+       etzpc_configure_decprot(STM32MP1_ETZPC_ETH2_ID,       ETZPC_DECPROT_NS_RW);
+       etzpc_configure_decprot(STM32MP1_ETZPC_FMC_ID,        ETZPC_DECPROT_NS_RW);
+       etzpc_configure_decprot(STM32MP1_ETZPC_HASH_ID,       ETZPC_DECPROT_S_RW);
+       etzpc_configure_decprot(STM32MP1_ETZPC_I2C3_ID,       ETZPC_DECPROT_NS_RW);
+       etzpc_configure_decprot(STM32MP1_ETZPC_I2C4_ID,       ETZPC_DECPROT_NS_RW);
+       etzpc_configure_decprot(STM32MP1_ETZPC_I2C5_ID,       ETZPC_DECPROT_NS_RW);
+       etzpc_configure_decprot(STM32MP1_ETZPC_IWDG1_ID,      ETZPC_DECPROT_S_RW);
+       etzpc_configure_decprot(STM32MP1_ETZPC_LPTIM2_ID,     ETZPC_DECPROT_NS_RW);
+       etzpc_configure_decprot(STM32MP1_ETZPC_LPTIM3_ID,     ETZPC_DECPROT_S_RW);
+       etzpc_configure_decprot(STM32MP1_ETZPC_LTDC_ID,       ETZPC_DECPROT_NS_RW);
+       etzpc_configure_decprot(STM32MP1_ETZPC_MCE_ID,        ETZPC_DECPROT_S_RW);
+       etzpc_configure_decprot(STM32MP1_ETZPC_OTG_ID,        ETZPC_DECPROT_NS_RW);
+       etzpc_configure_decprot(STM32MP1_ETZPC_PKA_ID,        ETZPC_DECPROT_S_RW);
+       etzpc_configure_decprot(STM32MP1_ETZPC_QSPI_ID,       ETZPC_DECPROT_NS_RW);
+       etzpc_configure_decprot(STM32MP1_ETZPC_RNG_ID,        ETZPC_DECPROT_S_RW);
+       etzpc_configure_decprot(STM32MP1_ETZPC_SAES_ID,       ETZPC_DECPROT_S_RW);
+       etzpc_configure_decprot(STM32MP1_ETZPC_SDMMC1_ID,     ETZPC_DECPROT_NS_RW);
+       etzpc_configure_decprot(STM32MP1_ETZPC_SDMMC2_ID,     ETZPC_DECPROT_NS_RW);
+       etzpc_configure_decprot(STM32MP1_ETZPC_SPI4_ID,       ETZPC_DECPROT_NS_RW);
+       etzpc_configure_decprot(STM32MP1_ETZPC_SPI5_ID,       ETZPC_DECPROT_NS_RW);
+       etzpc_configure_decprot(STM32MP1_ETZPC_SRAM1_ID,      ETZPC_DECPROT_NS_RW);
+       etzpc_configure_decprot(STM32MP1_ETZPC_SRAM2_ID,      ETZPC_DECPROT_NS_RW);
+       etzpc_configure_decprot(STM32MP1_ETZPC_SRAM3_ID,      ETZPC_DECPROT_S_RW);
+       etzpc_configure_decprot(STM32MP1_ETZPC_STGENC_ID,     ETZPC_DECPROT_S_RW);
+       etzpc_configure_decprot(STM32MP1_ETZPC_TIM12_ID,      ETZPC_DECPROT_S_RW);
+       etzpc_configure_decprot(STM32MP1_ETZPC_TIM13_ID,      ETZPC_DECPROT_NS_RW);
+       etzpc_configure_decprot(STM32MP1_ETZPC_TIM14_ID,      ETZPC_DECPROT_NS_RW);
+       etzpc_configure_decprot(STM32MP1_ETZPC_TIM15_ID,      ETZPC_DECPROT_S_RW);
+       etzpc_configure_decprot(STM32MP1_ETZPC_TIM16_ID,      ETZPC_DECPROT_NS_RW);
+       etzpc_configure_decprot(STM32MP1_ETZPC_TIM17_ID,      ETZPC_DECPROT_NS_RW);
+       etzpc_configure_decprot(STM32MP1_ETZPC_USART1_ID,     ETZPC_DECPROT_NS_RW);
+       etzpc_configure_decprot(STM32MP1_ETZPC_USART2_ID,     ETZPC_DECPROT_NS_RW);
+       etzpc_configure_decprot(STM32MP1_ETZPC_USBPHYCTRL_ID, ETZPC_DECPROT_NS_RW);
+       etzpc_configure_decprot(STM32MP1_ETZPC_VREFBUF_ID,    ETZPC_DECPROT_NS_RW);
+
+6. Remove the ETZPC section (`&etzpc {...}`) from the OP-TEE DTS file
+   `core/arch/arm/dts/stm32mp135f-dk.dts`.
+
+Instead of following steps 1 through 6, we can apply the patch file
+`0001-allow-large-bl33-and-config-etzpc-rcc.patch` to the TF-A code.
+
+### Start Linux from TF-A without OP-TEE
 
 ### Author
 

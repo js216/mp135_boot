@@ -27,11 +27,11 @@ correctly. After the kernel is started, it will also require a root filesystem.
    it takes longer to load. We need to adjust the SD card reading timeout. In
    `drivers/st/mmc/stm32_sdmmc2.c`, find the line
 
-       timeout = timeout_init_us(TIMEOUT_US_10_MS);
+       timeout = timeout_init_us(TIMEOUT_US_1_S);
 
    and replace it with
 
-       timeout = timeout_init_us(TIMEOUT_US_10_MS * 5);
+       timeout = timeout_init_us(TIMEOUT_US_1_S * 5);
 
    Next, we would like to load the kernel deep enough into the memory space so
    that relocation of the compressed image is not necessary. In file
