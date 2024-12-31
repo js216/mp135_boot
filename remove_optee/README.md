@@ -1,10 +1,25 @@
 # Run Linux on STM32MP135 without OP-TEE
 
-In this example, we show how to reassign the STPMIC1 from the trusted execution
-environment (OP-TEE) to the "untrusted" Linux kernel. In this way, the I2C4 can
-be unsecured and used directly from the kernel and userspace. Later, we show how
-to configure all clocks and ETZPC from Arm Trusted Firmware (TF-A), so that
-OP-TEE does not have to be used for this purpose.
+In this example, we show how to minimize the tasks performed by OP-TEE with the
+goal of removing it altogether. To this end, we:
+
+- Reassign the STPMIC1 from the trusted execution environment (OP-TEE) to the
+  "untrusted" Linux kernel, so that the I2C4 can be unsecured and used directly
+  from the kernel and userspace
+
+- Configure clocks (RCC) from Arm Trusted Firmware (TF-A)
+
+- Configure ETZPC from TF-A
+
+- Explain boot process from TF-A to OP-TEE to Linux
+
+- Explain how secure monitor calls (SMC) calls work
+
+- Explain secure interrupts (FIQ) in OP-TEE
+
+- Check for additional SMC calls
+
+- (Work in progress!) Disable SMC calls from Linux
 
 Note that removing OP-TEE is NOT supported by official ST resources, where the
 secure OS is strongly recommended to be used for power management using the SCMI
@@ -515,8 +530,7 @@ in which case the changes are not necessary and will be discarded at the end.
    This is needed because of a bug in the OP-TEE rcc driver, where it attempts
    to set the dividers and clocks even if none are provided.
 
-Now all the clocks are effectively set by TF-A. The only task that OP-TEE has
-left is to configure the ETZPC to allow certain non-secure accesses.
+Now all the clocks are effectively set by TF-A.
 
 # How to configure ETZPC from TF-A
 
@@ -653,7 +667,255 @@ To relieve OP-TEE of the ETZPC configuration duty, follow these steps:
 Instead of following steps 1 through 6, we can apply the patch file
 `0001-allow-large-bl33-and-config-etzpc-rcc.patch` to the TF-A code.
 
-### Start Linux from TF-A without OP-TEE
+### Boot process from TF-A to OP-TEE to Linux
+
+When Arm Trusted Firmware (TF-A) is done with its own initialization, it loads
+several images into memory. In the STM32MP1 case, these are defined in the
+array `bl2_mem_params_desc` in file
+`plat/st/stm32mp1/plat_bl2_mem_params_desc.c`, and include the following:
+
+- `FW_CONFIG_ID`: firmware config, which is mostly just the information on
+TrustZone memory regions that is used by TF-A itself
+
+- `BL32_IMAGE_ID`: the OP-TEE executable
+
+- `BL32_EXTRA1_IMAGE_ID`, `BL32_EXTRA2_IMAGE_ID`, and `TOS_FW_CONFIG_ID`: some
+  stuff needed by OP-TEE
+
+- `BL33_IMAGE_ID`: the non-trusted bootloader (U-Boot) or directly Linux itself,
+  if operating in the "falcon mode"
+
+- `HW_CONFIG_ID`: the Device Tree Blob (DTB) used by U-Boot or Linux, whichever
+  is run as "BL32"
+
+Just before passing control to OP-TEE, the TF-A prints a couple messages in the
+`bl2_main()` function (`bl2/bl2_main.c`), and then runs `bl2_run_next_image`
+(`bl2/aarch32/bl2_run_next_image.S`). There, we disable MMU, put the OP-TEE
+entry address into the link register (either `lr` or `lr_svc`), load the `SPSR`
+register, and then do an "exception return" to atomically change the program
+counter to the link register value, and restore the Current Program Status
+Register (CPSR) from the Saved Program Status Register (SPSR).
+
+### How do secure monitor calls (SMC) work?
+
+The ARMv7-A architecture provides optional TrustZone extension, which are
+implemented on the STM32MP135 chips (as well as the virtualization
+extension). In this scheme, the processor is at all times executing in one of
+two "worlds", either the secure or the non-secure one.
+
+The `NS` bit of the
+[`SCR`](https://developer.arm.com/documentation/ddi0406/c/System-Level-Architecture/System-Control-Registers-in-a-VMSA-implementation/VMSA-System-control-registers-descriptions--in-register-order/SCR--Secure-Configuration-Register--Security-Extensions?lang=en)
+register defines which world we're currently in. If `NS=1`, we are in non-secure
+world, otherwise we're in the secure world. The one exception to this is that
+when the processor is running in
+[Monitor mode](https://developer.arm.com/documentation/ddi0406/c/System-Level-Architecture/The-System-Level-Programmers--Model/ARM-processor-modes-and-ARM-core-registers/ARM-processor-modes?lang=en#CIHGHDGI);
+in that case, the code is executing the secure world and `SCR.NS` merely
+indicates which world the processor was in before entering the Monitor mode.
+(The current processor mode is given by the `M` bits of the
+[`CPSR`](https://developer.arm.com/documentation/ddi0406/c/System-Level-Architecture/The-System-Level-Programmers--Model/ARM-processor-modes-and-ARM-core-registers/Program-Status-Registers--PSRs-?lang=en#CIHBFGJG)
+register.)
+
+The processor starts execution in the secure world. How do we transition to the
+non-secure world? Outside of Monitor mode, Arm does not recommend direct
+manipulation of the `SCR.NS` bit to change from the secure world to the
+non-secure world or vice versa. Instead, the right way is to first change into
+Monitor mode, flip the `SCR.NS` bit, and leave monitor mode. To enter Monitor
+mode, execute the `SMC` instruction. This triggers the SMC exception, and the
+processor begins executing the SMC handler.
+
+The location of the SMC handler has to be previously stored in the
+[MVBAR register](https://developer.arm.com/documentation/ddi0406/c/System-Level-Architecture/System-Control-Registers-in-a-VMSA-implementation/VMSA-System-control-registers-descriptions--in-register-order/MVBAR--Monitor-Vector-Base-Address-Register--Security-Extensions).
+The initial setup required is as follows:
+
+1. Write a SMC handler. As an example, consult OP-TEE source code, which
+   provides the handler `sm_smc_entry`, defined in `core/arch/arm/sm/sm_a32.S`.
+
+2. Create a vector table for monitor mode. As specified in the
+   [Arm architecture](https://developer.arm.com/documentation/ddi0406/b/System-Level-Architecture/The-System-Level-Programmers--Model/Exceptions/Exception-vectors-and-the-exception-base-address?lang=en)
+   manual, the monitor vector table has eight entries:
+
+   1. Unused
+   2. Unused
+   3. Secure Monitor Call (SMC) handler
+   4. Prefetch Abort handler
+   5. Data Abort handler
+   6. Unused
+   7. IRQ interrupt handler
+   8. FIQ interrupt handler
+
+   Obviously entry number 3 has to point to the SMC handler defined previously.
+   For example, OP-TEE defines the following vector table in
+   `core/arch/arm/sm/sm_a32.S`:
+
+       LOCAL_FUNC sm_vect_table , :, align=32
+       UNWIND(	.cantunwind)
+       	b	.		/* Reset			*/
+       	b	.		/* Undefined instruction	*/
+       	b	sm_smc_entry	/* Secure monitor call		*/
+       	b	.		/* Prefetch abort		*/
+       	b	.		/* Data abort			*/
+       	b	.		/* Reserved			*/
+       	b	.		/* IRQ				*/
+       	b	sm_fiq_entry	/* FIQ				*/
+       END_FUNC sm_vect_table
+
+   We see only the SMC and FIQ handlers are installed, since OP-TEE setup
+   disables all other Monitor-mode interrupts and exceptions.
+
+3. Install the vector table to the MVBAR register. The OP-TEE source code
+   defines the followign macros in `out/core/include/generated/arm32_sysreg.h`:
+
+       /* Monitor Vector Base Address Register */
+       static inline __noprof uint32_t read_mvbar(void)
+       {
+       	uint32_t v;
+
+       	asm volatile ("mrc p15, 0, %0, c12, c0, 1" : "=r"  (v));
+
+       	return v;
+       }
+
+       /* Monitor Vector Base Address Register */
+       static inline __noprof void write_mvbar(uint32_t v)
+       {
+       	asm volatile ("mcr p15, 0, %0, c12, c0, 1" : : "r"  (v));
+       }
+
+   This merely follows the Arm manual on how to access the
+   [MVBAR register](https://developer.arm.com/documentation/ddi0406/c/System-Level-Architecture/System-Control-Registers-in-a-VMSA-implementation/VMSA-System-control-registers-descriptions--in-register-order/MVBAR--Monitor-Vector-Base-Address-Register--Security-Extensions).
+
+With this setup in place, to transition from the secure world to the non-secure
+world, the steps are as follows:
+
+1. Place the arguments to the SMC handler into registers `r0` through `r4` (or
+   as many as are needed by the handler), and execute the SMC instruction. For
+   example, just before passing control to the non-secure world, OP-TEE
+   `reset_primary` function (called from the `_start` function) does the
+   following:
+
+       mov	r4, #0
+       mov	r3, r6
+       mov	r2, r7
+       mov	r1, #0
+       mov	r0, #TEESMC_OPTEED_RETURN_ENTRY_DONE
+       smc	#0
+
+2. This puts the processor into Monitor mode, and it begins execution at the
+   previously-installed SMC handler. The handler stores secure-mode registers
+   into some memory location for future use, then sets the `SCR.NS` bit:
+
+       read_scr r0
+       orr	r0, r0, #(SCR_NS | SCR_FIQ) /* Set NS and FIQ bit in SCR */
+       write_scr r0
+
+   This also sets the `SCR.FIQ` bit, which means that FIQ interrupts are also
+   taken to Monitor mode. In this way, OP-TEE assigns IRQ interrupts to the
+   non-secure world, and FIQ interrupts to the secure-world. Of course, this
+   means that the Monitor-mode vector table needs a FIQ handler (as mentioned
+   in passing above), and the system interrupt handler (GIC on STM32MP135) needs
+   to be configured to pass "secure" interrupts as FIQ.
+
+3. After adjusting the stack pointer and restoring the nonsecure register values
+   from the stack, the SMC handler returns:
+
+       add	sp, sp, #(SM_CTX_NSEC + SM_NSEC_CTX_R0)
+       pop	{r0-r7}
+       rfefd	sp!
+
+   The return location and processor mode is stored on the stack and
+   automatically retrieved by the `rfefd sp!` instruction. Of course this means
+   they have to be previously stored in the right place on the stack; see
+   `sm_smc_entry` source code for details.
+
+### Secure interrupts in OP-TEE
+
+As mentioned above, OP-TEE code, before returning to non-secure mode, enables
+the `SCR.FIQ` bit, which means that FIQ interrupts get taken to Monitor mode,
+serviced by the FIQ handler that is installed in the Monitor-mode vector table
+(the table address is stored in the `MVBAR` register).
+
+As mentioned above, an arbitrary number of system interrupts may be passed as a
+FIQ to the processor core. OP-TEE handles these interrupts in `itr_handle()`
+(defined in `core/kernel/interrupt.c`). The individual interrupt handlers are
+stored in a linked list, which `itr_handle()` traverses until it finds a handler
+whose interrupt number (`h->it`) matches the given interrupt.
+
+For example, the handler for the TZC interrupt (TrustZone memory protection) is
+defined in `core/arch/arm/plat-stm32mp1/plat_tzc400.c`, as the
+`tzc_it_handler()` function.
+
+### Check for additional SMC calls
+
+At this stage, Linux is still issuing many SMC calls. We can see that by
+inserting a function that prints a message into the OP-TEE SMC handler, as
+follows.
+
+1. In OP-TEE, define two "print" functions in `core/arch/arm/kernel/boot.c`:
+
+       void __print_from_secure_smc(void)
+       {
+          EMSG_RAW("SMC from Secure");
+       }
+
+       void __print_from_nonsecure_smc(void)
+       {
+          EMSG_RAW("SMC from Non-Secure");
+       }
+
+2. Call these two functions from the OP-TEE secure monitor call (SMC) handler.
+   Open `core/arch/arm/sm/sm_a32.S`, in function `sm_smc_entry`, and call
+   `__print_from_secure_smc()` after checking the `SCR_NS` bit:
+
+       /* Find out if we're doing an secure or non-secure entry */
+       read_scr r1
+       tst	r1, #SCR_NS
+       bne	.smc_from_nsec
+       bl __print_from_secure_smc
+
+   A couple lines later, insert the "print from nonsecure":
+
+       .smc_from_nsec:
+       	bl __print_from_nonsecure_smc
+
+### Disable Linux SMC calls (work in progress)
+
+Since clock and power configuration is done outside of OP-TEE, we need to
+configure the Linux kernel so that it does not do unnecessary SMC calls into
+OP-TEE.
+
+1. Unset the following Linux kernel configuration options:
+
+       CONFIG_ARM_SCMI_POWER_DOMAIN
+       CONFIG_SENSORS_ARM_SCMI
+       CONFIG_REGULATOR_ARM_SCMI
+       CONFIG_RESET_SCMI
+       CONFIG_ARM_SCMI_TRANSPORT_MAILBOX
+       CONFIG_TRUSTED_FOUNDATIONS
+       CONFIG_ARM_SMCC_SOC_ID
+       CONFIG_ARM_SMC_WATCHDOG
+
+       CONFIG_ARM_STM32_CPUFREQ
+       CONFIG_CPUFREQ_DT
+       CONFIG_CPU_FREQ_GOV_SCHEDUTIL
+       CONFIG_CPU_FREQ_GOV_CONSERVATIVE
+       CONFIG_CPU_FREQ_GOV_USERSPACE
+       CONFIG_CPU_FREQ_GOV_POWERSAVE
+       CONFIG_CPU_FREQ_STAT
+       CONFIG_CPU_FREQ
+       CONFIG_CPU_IDLE
+
+2. The following are required or it doesn't boot ...
+
+       CONFIG_COMMON_CLK_SCMI
+       CONFIG_RTC_DRV_STM32
+       CONFIG_ARM_SCMI_PROTOCOL
+       CONFIG_ARM_SCMI_TRANSPORT_OPTEE
+       CONFIG_ARM_SCMI_TRANSPORT_SMC
+       CONFIG_ARM_SCMI_HAVE_TRANSPORT
+       CONFIG_ARM_SCMI_HAVE_SHMEM
+       CONFIG_ARM_SCMI_HAVE_MSG
+       CONFIG_OPTEE
+       CONFIG_TEE
 
 ### Author
 
