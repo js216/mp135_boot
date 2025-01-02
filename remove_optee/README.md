@@ -19,6 +19,10 @@ goal of removing it altogether. To this end, we:
 
 - Check for additional SMC calls
 
+- Explain how SCMI clocks work
+
+- Unsecure access to the RCC registers
+
 - (Work in progress!) Disable SMC calls from Linux
 
 Note that removing OP-TEE is NOT supported by official ST resources, where the
@@ -876,6 +880,237 @@ follows.
 
        .smc_from_nsec:
        	bl __print_from_nonsecure_smc
+
+In the default configuration, I count as many as 1017 "SMC from Non-Secure"
+messages reported by OP-TEE. What is going on? Some clues are to be found in the
+Linux DTS file, `arch/arm/boot/dts/stm32mp131.dtsi`. In the `firmware { ... }`
+section, there is an `optee` node with `method = "smc"`, as well as a `scmi`
+sub-tree, listing `scmi_perf`, `scmi_clk`, `scmi_reset`, and `scmi_voltd`. We
+need to go through these one by one and see whether they can be removed.
+
+### How do SCMI clocks work?
+
+In general, to configure clocks, Linux uses the
+[Common Clock Framework](https://www.kernel.org/doc/Documentation/clk.txt). Each
+clock needs to define some common operations, such as `enable()`, `disable()`,
+`set_rate()`, and so on, as relevant to each particular clock.
+
+Since in the ST-recommended scheme the clock configuration is done entirely in
+the secure world, the STM32MP135 clock drivers
+(`drivers/clk/stm32/clk-strm32mp13.c`) make use of the SCMI clock driver
+(`drivers/clk/clk/scmi.c`). The latter provides a translation from the common
+clock functions to SCMI functions. For example, `enable()` is implemented as
+follows:
+
+    static int scmi_clk_enable(struct clk_hw *hw)
+    {
+    	struct scmi_clk *clk = to_scmi_clk(hw);
+    	return scmi_proto_clk_ops->enable(clk->ph, clk->id);
+    }
+
+This this is just a wrapper around the SCMI clock enable function, as found in
+the `scmi_proto_clk_ops` structure (which contains all the SCMI-protocol clock
+operations).
+
+At Linux boot, when the SCMI clock driver is being "probed", it asks OP-TEE
+about the number of supported clocks, and then retrieves information about each
+one in sequence. Thus it acquires a list of clocks, with a header file defining
+the sequential ID numbers (`include/dt-bindings/clock/stm32mp13-clks.h`):
+
+    /* SCMI clock identifiers */
+    #define CK_SCMI_HSE		0
+    #define CK_SCMI_HSI		1
+    #define CK_SCMI_CSI		2
+    #define CK_SCMI_LSE		3
+    #define CK_SCMI_LSI		4
+    #define CK_SCMI_HSE_DIV2	5
+    #define CK_SCMI_PLL2_Q		6
+    #define CK_SCMI_PLL2_R		7
+    #define CK_SCMI_PLL3_P		8
+    #define CK_SCMI_PLL3_Q		9
+    #define CK_SCMI_PLL3_R		10
+    #define CK_SCMI_PLL4_P		11
+    #define CK_SCMI_PLL4_Q		12
+    #define CK_SCMI_PLL4_R		13
+    #define CK_SCMI_MPU		14
+    #define CK_SCMI_AXI		15
+    #define CK_SCMI_MLAHB		16
+    #define CK_SCMI_CKPER		17
+    #define CK_SCMI_PCLK1		18
+    #define CK_SCMI_PCLK2		19
+    #define CK_SCMI_PCLK3		20
+    #define CK_SCMI_PCLK4		21
+    #define CK_SCMI_PCLK5		22
+    #define CK_SCMI_PCLK6		23
+    #define CK_SCMI_CKTIMG1		24
+    #define CK_SCMI_CKTIMG2		25
+    #define CK_SCMI_CKTIMG3		26
+    #define CK_SCMI_RTC		27
+    #define CK_SCMI_RTCAPB		28
+
+(There must be some way to ensure that the same sequential number is used in
+ Linux as in OP-TEE, or else the clocks would get confused. Presumably the same
+ header file is used in Linux as in OP-TEE.)
+
+The SCMI clock numbers are then used in device trees. For example, in
+`core/arch/arm/dts/stm32mp131.dtsi`, we see some of these constants being used:
+
+    rcc: rcc@50000000 {
+    	compatible = "st,stm32mp13-rcc", "syscon";
+    	reg = <0x50000000 0x1000>;
+    	#clock-cells = <1>;
+    	#reset-cells = <1>;
+    	clock-names = "hse", "hsi", "csi", "lse", "lsi";
+    	clocks = <&scmi_clk CK_SCMI_HSE>,
+    		 <&scmi_clk CK_SCMI_HSI>,
+    		 <&scmi_clk CK_SCMI_CSI>,
+    		 <&scmi_clk CK_SCMI_LSE>,
+    		 <&scmi_clk CK_SCMI_LSI>;
+    };
+
+Thus, when the driver compatible with "st,stm32mp13-rcc" (implemented in
+`drivers/clk/stm32/clk-stm32mp13.c`) needs to refer to its "hse" clock, it
+calls the `scmi_clk` and gives it the `CK_SCMI_HSE` parameter. Recall that
+`scmi_clk` is defined in the same DTSI file, under `firmware` / `scmi`:
+
+    scmi_clk: protocol@14 {
+    	reg = <0x14>;
+    	#clock-cells = <1>;
+    };
+
+There are some SCMI clocks, however, which are used by the `"st,stm32mp13-rcc"`
+driver, which are not listed in the device tree. For example, in
+`drivers/clk/stm32/clk-stm32mp13.c` we find many definitions such as the
+following:
+
+    static const char * const sdmmc12_src[] = {
+    	"ck_axi", "pll3_r", "pll4_p", "ck_hsi"
+    };
+
+Here `ck_axi`, `pll3_r`, etc., refer to SCMI clocks, but these are not mentioned
+in the device tree. How can the kernel find them? The way it works is that
+during SCMI clock driver initialization, the driver registers these clocks (and
+others as per the listing from the `stm32mp13-clks.h` header file above). When,
+later, the `"st,stm32mp13-rcc"` driver is being initialized, it is able to refer
+to these clocks simply by their name.
+
+This means that the SCMI driver needs to be probed before the RCC driver. To
+ensure this, note the following part of the device tree:
+
+    rcc: rcc@50000000 {
+        ...
+    	clocks = <&scmi_clk CK_SCMI_HSE>,
+    		 <&scmi_clk CK_SCMI_HSI>,
+    		 <&scmi_clk CK_SCMI_CSI>,
+    		 <&scmi_clk CK_SCMI_LSE>,
+    		 <&scmi_clk CK_SCMI_LSI>;
+    };
+
+The reference to SCMI clocks here does not mean that these particular clocks
+(HSE, HSI, CSI, LSE, LSI) are used by the RCC driver. Rather, it ensures that
+the SCMI clock driver is a dependency of the RCC driver, and gets initialized
+first. It would have been much nicer if the device tree RCC node listed all the
+clocks that are used by RCC rather than just referring to them by their name
+string (such as `"pll3_r"`), but that's the way ST implemented things.
+
+There is no need to understand SCMI clocks further, so long as we can replace
+them all with "real" clocks, with registers under direct control of the RCC
+driver from the Linux kernel.
+
+### Unsecure access to the RCC registers
+
+Before Linux can do its own clock configuration, RCC must be set so as to allow
+non-secure access to the clock configurations. According to the STM32MP135
+reference manual, the `RCC_SECCFGR` register can be used to "securely allocate
+and partition each corresponding RCC resource/sub-function either to the secure
+world or to the nonsecure world."
+
+1. In TF-A, add the following at the end of `bl2_platform_setup()` in file
+   `plat/st/stm32mp1/bl2_plat_setup.c`:
+
+       /* Allow non-secure access to all RCC clocks */
+       mmio_write_32(stm32mp_rcc_base() + RCC_SECCFGR, 0);
+
+2. (Optional.) To confirm that the clocks stay unsecured through the boot
+   process (in particular, that OP-TEE does not mess with it), we can add the
+   following function to the Linux RCC driver in
+   `drivers/clk/stm32/clk-stm-32-core.c`:
+
+       #include "stm32mp13_rcc.h"
+       
+       void print_seccfgr(void __iomem *rcc_base)
+       {
+               /* Read RCC secure configuration register */
+       	uint32_t seccfgr = ioread32(rcc_base + RCC_SECCFGR);
+       	printk(KERN_WARNING "Hello2! RCC_SECCFGR = 0x%x\n", seccfgr);
+       
+               const char* names[] = {
+                  "RCC_SECCFGR_HSISEC", "RCC_SECCFGR_CSISEC", "RCC_SECCFGR_HSESEC",
+                  "RCC_SECCFGR_LSISEC", "RCC_SECCFGR_LSESEC", "Res", "Res", "Res",
+                  "RCC_SECCFGR_PLL12SEC", "RCC_SECCFGR_PLL3SEC", "RCC_SECCFGR_PLL4SEC",
+                  "RCC_SECCFGR_MPUSEC", "RCC_SECCFGR_AXISEC", "RCC_SECCFGR_MLAHBSEC",
+                  "Res", "Res", "RCC_SECCFGR_APB3DIVSEC", "RCC_SECCFGR_APB4DIVSEC",
+                  "RCC_SECCFGR_APB5DIVSEC", "RCC_SECCFGR_APB6DIVSEC",
+                  "RCC_SECCFGR_TIMG3SEC", "RCC_SECCFGR_CPERSEC", "RCC_SECCFGR_MCO1SEC",
+                  "RCC_SECCFGR_MCO2SEC", "RCC_SECCFGR_STPSEC", "RCC_SECCFGR_RSTSEC",
+                  "Res", "Res", "Res", "Res", "Res", "RCC_SECCFGR_PWRSEC",
+               };
+       
+               for (int i=0; i<32; i++) {
+                  printk(KERN_WARNING "%s\t\t\t%s\r\n", names[i],
+                        ((seccfgr & (1U << i)) == 0) ? ("Non-Secure") : ("Secure"));
+               }
+       }
+
+   Call this function at the end of `stm32_rcc_init()`:
+
+       int stm32_rcc_init(struct device *dev, const struct of_device_id *match_data,
+       		   void __iomem *base)
+       {
+       ...
+       	print_seccfgr(base);
+       	return 0;
+       }
+
+   If everything works out, the following printout appears in the kernel log
+   when it boots:
+
+       [    4.756561] Hello2! RCC_SECCFGR = 0x0
+       [    4.756637] RCC_SECCFGR_HSISEC			Non-Secure
+       [    4.756668] RCC_SECCFGR_CSISEC			Non-Secure
+       [    4.756693] RCC_SECCFGR_HSESEC			Non-Secure
+       [    4.756718] RCC_SECCFGR_LSISEC			Non-Secure
+       [    4.756742] RCC_SECCFGR_LSESEC			Non-Secure
+       [    4.756766] Res			Non-Secure
+       [    4.756788] Res			Non-Secure
+       [    4.756809] Res			Non-Secure
+       [    4.756831] RCC_SECCFGR_PLL12SEC			Non-Secure
+       [    4.756855] RCC_SECCFGR_PLL3SEC			Non-Secure
+       [    4.756880] RCC_SECCFGR_PLL4SEC			Non-Secure
+       [    4.756904] RCC_SECCFGR_MPUSEC			Non-Secure
+       [    4.756928] RCC_SECCFGR_AXISEC			Non-Secure
+       [    4.756951] RCC_SECCFGR_MLAHBSEC			Non-Secure
+       [    4.756975] Res			Non-Secure
+       [    4.756997] Res			Non-Secure
+       [    4.757019] RCC_SECCFGR_APB3DIVSEC			Non-Secure
+       [    4.757043] RCC_SECCFGR_APB4DIVSEC			Non-Secure
+       [    4.757068] RCC_SECCFGR_APB5DIVSEC			Non-Secure
+       [    4.757093] RCC_SECCFGR_APB6DIVSEC			Non-Secure
+       [    4.757117] RCC_SECCFGR_TIMG3SEC			Non-Secure
+       [    4.757142] RCC_SECCFGR_CPERSEC			Non-Secure
+       [    4.757242] RCC_SECCFGR_MCO1SEC			Non-Secure
+       [    4.757273] RCC_SECCFGR_MCO2SEC			Non-Secure
+       [    4.757298] RCC_SECCFGR_STPSEC			Non-Secure
+       [    4.757323] RCC_SECCFGR_RSTSEC			Non-Secure
+       [    4.757347] Res			Non-Secure
+       [    4.757369] Res			Non-Secure
+       [    4.757390] Res			Non-Secure
+       [    4.757412] Res			Non-Secure
+       [    4.757433] Res			Non-Secure
+       [    4.757455] RCC_SECCFGR_PWRSEC			Non-Secure
+
+See section 10.8.1, "RCC secure configuration register (`RCC_SECCFGR`)", of the
+STM32MP135 reference manual for more information about the above printout.
 
 ### Disable Linux SMC calls (work in progress)
 
