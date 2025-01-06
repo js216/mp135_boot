@@ -23,6 +23,8 @@ goal of removing it altogether. To this end, we:
 
 - Unsecure access to the RCC registers
 
+- Configure all clocks from Linux
+
 - (Work in progress!) Disable SMC calls from Linux
 
 Note that removing OP-TEE is NOT supported by official ST resources, where the
@@ -1011,7 +1013,11 @@ The reference to SCMI clocks here does not mean that these particular clocks
 the SCMI clock driver is a dependency of the RCC driver, and gets initialized
 first. It would have been much nicer if the device tree RCC node listed all the
 clocks that are used by RCC rather than just referring to them by their name
-string (such as `"pll3_r"`), but that's the way ST implemented things.
+string (such as `"pll3_r"`), but that's the way ST implemented things. In
+particular, this means that if we unset the `CONFIG_COMMON_CLK_SCMI` entry in
+the kernel configuration, the kernel will no longer boot, without printing any
+error message at all; the RCC driver will fail to work properly since it can no
+longer refer to many of the clocks it needs by their name string.
 
 There is no need to understand SCMI clocks further, so long as we can replace
 them all with "real" clocks, with registers under direct control of the RCC
@@ -1112,6 +1118,35 @@ world or to the nonsecure world."
 See section 10.8.1, "RCC secure configuration register (`RCC_SECCFGR`)", of the
 STM32MP135 reference manual for more information about the above printout.
 
+### Configure all clocks from Linux
+
+In this section, we explain how to configure all necessary system clocks
+directly from the Linux kernel, without the use of SMC calls to OP-TEE via the
+SCMI protocol.
+
+1. Disable `CONFIG_COMMON_CLK_SCMI` entry in the kernel configuration (under
+   Device Drivers -> Common Clock Framework -> Clock driver controlled via SCMI
+   interface). This prevents the inclusion of the SCMI clock driver
+   (`clk-scmi.c`), and thereby the registration of unnecessary SCMI clocks.
+
+2. Patch the kernel clock driver for STM32 to include the clocks formerly
+   managed by OP-TEE. This requires substantial changes in the kernel source
+   tree under `drivers/clk/stm32`, as well as to the device DTS files in
+   `arch/arm/boot/dts`. Rather than doing it manually, use the provided patch
+   file `0004-add-stm32mp1-basic-clock-drivers.patch`.
+
+3. In TF-A, in file `plat/st/stm32mp1/bl2_plat_setup.c`, add the following lines
+   at the end of `bl2_platform_setup()`:
+
+       /* Allow non-secure access to all RCC clocks */
+       mmio_write_32(stm32mp_rcc_base() + RCC_SECCFGR, 0);
+       
+       /* Allow non-secure access to all RTC registers */
+       #define RTC_SECCFGR 0x20
+       mmio_write_32(RTC_BASE + RTC_SECCFGR, 0);
+
+   Alternatively, apply the patch `0002-unsecure-rcc-rtc.patch`.
+
 ### Disable Linux SMC calls (work in progress)
 
 Since clock and power configuration is done outside of OP-TEE, we need to
@@ -1128,14 +1163,6 @@ OP-TEE.
        CONFIG_TRUSTED_FOUNDATIONS
        CONFIG_ARM_SMCC_SOC_ID
        CONFIG_ARM_SMC_WATCHDOG
-
-       CONFIG_ARM_STM32_CPUFREQ
-       CONFIG_CPUFREQ_DT
-       CONFIG_CPU_FREQ_GOV_SCHEDUTIL
-       CONFIG_CPU_FREQ_GOV_CONSERVATIVE
-       CONFIG_CPU_FREQ_GOV_USERSPACE
-       CONFIG_CPU_FREQ_GOV_POWERSAVE
-       CONFIG_CPU_FREQ_STAT
        CONFIG_CPU_FREQ
        CONFIG_CPU_IDLE
 

@@ -1,0 +1,18 @@
+diff --git a/plat/st/stm32mp1/bl2_plat_setup.c b/plat/st/stm32mp1/bl2_plat_setup.c
+index a93394d..1d6893f 100644
+--- a/plat/st/stm32mp1/bl2_plat_setup.c
++++ b/plat/st/stm32mp1/bl2_plat_setup.c
+@@ -243,6 +243,13 @@ void bl2_platform_setup(void)
+ 	etzpc_configure_decprot(STM32MP1_ETZPC_USART2_ID,     ETZPC_DECPROT_NS_RW);
+ 	etzpc_configure_decprot(STM32MP1_ETZPC_USBPHYCTRL_ID, ETZPC_DECPROT_NS_RW);
+ 	etzpc_configure_decprot(STM32MP1_ETZPC_VREFBUF_ID,    ETZPC_DECPROT_NS_RW);
++
++	/* Allow non-secure access to all RCC clocks */
++	mmio_write_32(stm32mp_rcc_base() + RCC_SECCFGR, 0);
++
++	/* Allow non-secure access to all RTC registers */
++#define RTC_SECCFGR 0x20
++	mmio_write_32(RTC_BASE + RTC_SECCFGR, 0);
+ }
+ 
+ #if STM32MP15
