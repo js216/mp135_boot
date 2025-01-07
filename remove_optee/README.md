@@ -25,8 +25,6 @@ goal of removing it altogether. To this end, we:
 
 - Configure all clocks from Linux
 
-- (Work in progress!) Disable SMC calls from Linux
-
 Note that removing OP-TEE is NOT supported by official ST resources, where the
 secure OS is strongly recommended to be used for power management using the SCMI
 interface, clock configuration, ETZPC setup, etc.
@@ -1129,6 +1127,20 @@ SCMI protocol.
    interface). This prevents the inclusion of the SCMI clock driver
    (`clk-scmi.c`), and thereby the registration of unnecessary SCMI clocks.
 
+   Additionally, the following entries will not be needed:
+
+       CONFIG_ARM_SCMI_POWER_DOMAIN
+       CONFIG_SENSORS_ARM_SCMI
+       CONFIG_REGULATOR_ARM_SCMI
+       CONFIG_RESET_SCMI
+       CONFIG_ARM_SCMI_TRANSPORT_MAILBOX
+       CONFIG_TRUSTED_FOUNDATIONS
+       CONFIG_ARM_SMC_WATCHDOG
+       CONFIG_CPU_FREQ
+       CONFIG_CPU_IDLE
+       CONFIG_ARM_SMCCC_SOC_ID
+       CONFIG_ARM_SCMI_TRANSPORT_SMC
+
 2. Patch the kernel clock driver for STM32 to include the clocks formerly
    managed by OP-TEE. This requires substantial changes in the kernel source
    tree under `drivers/clk/stm32`, as well as to the device DTS files in
@@ -1140,44 +1152,73 @@ SCMI protocol.
 
        /* Allow non-secure access to all RCC clocks */
        mmio_write_32(stm32mp_rcc_base() + RCC_SECCFGR, 0);
-       
+
        /* Allow non-secure access to all RTC registers */
        #define RTC_SECCFGR 0x20
        mmio_write_32(RTC_BASE + RTC_SECCFGR, 0);
 
    Alternatively, apply the patch `0002-unsecure-rcc-rtc.patch`.
 
-### Disable Linux SMC calls (work in progress)
+4. Now the entire `scmi { ... }` subtree is no longer needed in
+   `arch/arm/boot/dts/stm32mp131.dtsi`. Remove it, and also remove references to
+   scmi items in this DTS file, and any included from it. Unfortunately, the
+   `optee { ... }` node is still required.
 
-Since clock and power configuration is done outside of OP-TEE, we need to
-configure the Linux kernel so that it does not do unnecessary SMC calls into
-OP-TEE.
+### Remove further SMC calls
 
-1. Unset the following Linux kernel configuration options:
+Now we're down to about 75 SMC calls. Steps to cut it down further:
 
-       CONFIG_ARM_SCMI_POWER_DOMAIN
-       CONFIG_SENSORS_ARM_SCMI
-       CONFIG_REGULATOR_ARM_SCMI
-       CONFIG_RESET_SCMI
-       CONFIG_ARM_SCMI_TRANSPORT_MAILBOX
-       CONFIG_TRUSTED_FOUNDATIONS
-       CONFIG_ARM_SMCC_SOC_ID
-       CONFIG_ARM_SMC_WATCHDOG
-       CONFIG_CPU_FREQ
-       CONFIG_CPU_IDLE
+1. In `arch/arm/mach-stm32/KConfig`, remove the following line:
 
-2. The following are required or it doesn't boot ...
+       select ARM_PSCI if ARCH_MULTI_V7
 
-       CONFIG_COMMON_CLK_SCMI
-       CONFIG_RTC_DRV_STM32
+   Open `make linux-menuconfig` and disable `CONFIG_ARM_PSCI` (under Kernel
+   Features -> Support for the ARM Power State Coordination Interface (PSCI)).
+
+   This removes about eight SMC calls, including a couple at the very beginning
+   of the boot sequence.
+
+2. In `arch/arm/boot/dts/stm32mp131.dtsi`, remove the entire `pm_domain { ... }`
+   subtree. Search for references to `pd_core_ret` and `pd_core`, and remove
+   them. This gets rid of another eight or so SMC calls.
+
+3. (Optional.) Many of the remaining SMC calls are through the OP-TEE driver in
+   the Linux kernel, `drivers/tee/optee/smc_abi.c`. In `optee_smccc_smc()`, add
+   `dump_stack();` at the beginning of the function to trace down all of these
+   SMC calls.
+
+4. In the board DTS file, look for the lines:
+
+       nvmem-cells = <&ethernet_mac1_address>;
+       nvmem-cell-names = "mac-address";
+
+   and replace them with an explicit statement of the MAC address:
+
+       mac-address = [00 19 B3 11 00 00];
+
+   This way, the kernel does not need to look for the MAC address in NVMEM,
+   which is under control of OP-TEE. (Alternatively, we can unsecure NVMEM
+   itself, but that seems like more work.)
+
+   Remove also the references to NVMEM in other DTS files, such as the following
+   lines in `arch/arm/boot/dts/stm32mp131.dtsi` under `cpus/cpu0`:
+
+       nvmem-cells = <&part_number_otp>;
+       nvmem-cell-names = "part_number";
+
+   And also under `adc2`:
+
+       nvmem-cells = <&vrefint>;
+       nvmem-cell-names = "vrefint";
+
+5. Now we can remove the following keys from the kernel configuration:
+
        CONFIG_ARM_SCMI_PROTOCOL
-       CONFIG_ARM_SCMI_TRANSPORT_OPTEE
-       CONFIG_ARM_SCMI_TRANSPORT_SMC
-       CONFIG_ARM_SCMI_HAVE_TRANSPORT
-       CONFIG_ARM_SCMI_HAVE_SHMEM
-       CONFIG_ARM_SCMI_HAVE_MSG
-       CONFIG_OPTEE
        CONFIG_TEE
+
+With that, there is only one more SMC call remaining --- the initial SMC call
+from within OP-TEE to transfer control to Linux. In other words, OP-TEE is now
+doing nothing at all and can be removed.
 
 ### Author
 
