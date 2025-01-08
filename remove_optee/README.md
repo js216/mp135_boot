@@ -1045,13 +1045,13 @@ world or to the nonsecure world."
    `drivers/clk/stm32/clk-stm-32-core.c`:
 
        #include "stm32mp13_rcc.h"
-       
+
        void print_seccfgr(void __iomem *rcc_base)
        {
                /* Read RCC secure configuration register */
        	uint32_t seccfgr = ioread32(rcc_base + RCC_SECCFGR);
        	printk(KERN_WARNING "Hello2! RCC_SECCFGR = 0x%x\n", seccfgr);
-       
+
                const char* names[] = {
                   "RCC_SECCFGR_HSISEC", "RCC_SECCFGR_CSISEC", "RCC_SECCFGR_HSESEC",
                   "RCC_SECCFGR_LSISEC", "RCC_SECCFGR_LSESEC", "Res", "Res", "Res",
@@ -1063,7 +1063,7 @@ world or to the nonsecure world."
                   "RCC_SECCFGR_MCO2SEC", "RCC_SECCFGR_STPSEC", "RCC_SECCFGR_RSTSEC",
                   "Res", "Res", "Res", "Res", "Res", "RCC_SECCFGR_PWRSEC",
                };
-       
+
                for (int i=0; i<32; i++) {
                   printk(KERN_WARNING "%s\t\t\t%s\r\n", names[i],
                         ((seccfgr & (1U << i)) == 0) ? ("Non-Secure") : ("Secure"));
@@ -1233,6 +1233,10 @@ Before passing control to Linux, OP-TEE does several things:
 
 - Configure the GIC interrupt controller.
 
+- Register the SMC handler.
+
+- Call the SMC handler, passing DTB address and Linux entry point.
+
 To be able to remove OP-TEE, we have to do these configuration tasks from TF-A,
 as follows:
 
@@ -1294,6 +1298,142 @@ as follows:
        	 */
        	mmio_write_32(GICC_BASE + GICC_PMR, GIC_HIGHEST_NS_PRIORITY);
        }
+
+   Note that this function cannot be called from `bl2_platform_setup()`, at
+   least not without further modifications to the code. The STM32MP135 manual
+   says that "Memory regions marked as normal memory cannot access any of the
+   GIC registers, instead access caches or external memory as required." The
+   function `bl2_platform_setup()` is run with MMU enabled, so attempting to
+   access the registers directly probably causes a page fault; all I can see is
+   that the device freezes.
+
+3. In `bl2/aarch32/bl2_run_next_image.S`, define the following constants:
+
+       #define CPSR_MODE_SVC	U(0x13)
+       #define CPSR_I		BIT(7)
+       #define CPSR_F		BIT(6)
+       #define SCR_NS		(1U << 0)
+       #define ACTLR_SMP	(1U << 6)
+       #define SCTLR_M		(1U << 0)
+       #define SCTLR_C		(1U << 2)
+       #define SCTLR_I		(1U << 12)
+       #define SCTLR_TE	(1U << 30)
+       #define SCTLR_SPAN	(1U << 23)
+       #define SCTLR_A		(1U << 1)
+
+   Define the following macros:
+
+       .macro write_actlr reg
+       mcr     p15, 0, \reg, c1, c0, 1
+       .endm
+
+       .macro read_actlr reg
+       mrc     p15, 0, \reg, c1, c0, 1
+       .endm
+
+       .macro read_sctlr reg
+       mrc     p15, 0, \reg, c1, c0, 0
+       .endm
+
+       .macro write_sctlr reg
+       mcr     p15, 0, \reg, c1, c0, 0
+       .endm
+
+       .macro write_mvbar reg
+       mcr     p15, 0, \reg, c12, c0, 1
+       .endm
+
+       .macro read_scr reg
+       mrc     p15, 0, \reg, c1, c1, 0
+       .endm
+
+       .macro write_scr reg
+       mcr     p15, 0, \reg, c1, c1, 0
+       .endm
+
+   Define the SMC handler:
+
+       func sm_smc_entry
+       	/* Update SCR */
+       	read_scr r0
+       	orr	r0, r0, #SCR_NS
+       	write_scr r0
+       	mov	r0, #0
+
+       	/* Return from the secure monitor call */
+       	push	{r4}
+       	push	{r3}
+       	rfefd	sp
+       endfunc sm_smc_entry
+
+   Define the SM vector table:
+
+       func sm_vect_table
+       	.balign 32
+       	b	.		/* Reset			*/
+       	b	.		/* Undefined instruction	*/
+       	b	sm_smc_entry	/* Secure monitor call		*/
+       	b	.		/* Prefetch abort		*/
+       	b	.		/* Data abort			*/
+       	b	.		/* Reserved			*/
+       	b	.		/* IRQ				*/
+       	b	.		/* FIQ				*/
+       endfunc sm_vect_table
+
+4. In the same file, replace `bl2_run_next_image` with the following function:
+
+       func bl2_run_next_image
+       	mov	r8,r0
+
+       	/*
+       	 * MMU needs to be disabled because both BL2 and BL32 execute
+       	 * in PL1, and therefore share the same address space.
+       	 * BL32 will initialize the address space according to its
+       	 * own requirement.
+       	 */
+       	bl	disable_mmu_icache_secure
+       	stcopr	r0, TLBIALL
+       	dsb	sy
+       	isb
+       	mov	r0, r8
+       	bl	bl2_el3_plat_prepare_exit
+
+       	/* Enable coherent requests to the processor */
+       	read_actlr r0
+       	orr	r0, r0, #ACTLR_SMP
+       	write_actlr r0
+
+       	/* Setup core configuration in CP15 SCTLR */
+       	read_sctlr r0
+       	bic	r0, r0, #SCTLR_M	/* disable MPU */
+       	bic	r0, r0, #SCTLR_C	/* disable data and unified caches */
+       	bic	r0, r0, #SCTLR_I	/* disable instruction caches */
+       	bic	r0, r0, #SCTLR_TE	/* exceptions taken in ARM state */
+       	orr	r0, r0, #SCTLR_SPAN
+       	bic	r0, r0, #SCTLR_A	/* disable alignment fault checking */
+       	write_sctlr r0
+       	isb
+
+       	/* Set monitor vector (MVBAR) */
+       	ldr	r0, =sm_vect_table
+       	write_mvbar r0
+
+       	/* Will switch to SVC mode with IRQ and FIQ disabled */
+       	mov	r4, #(CPSR_MODE_SVC | CPSR_I | CPSR_F)
+
+       	/* Linux entry address */
+       	ldr	r3, [r8, #ENTRY_POINT_INFO_LR_SVC_OFFSET]
+
+       	/* Linux arguments */
+       	add	r8, r8, #ENTRY_POINT_INFO_ARGS_OFFSET
+       	ldm	r8, {r0, r1, r2}
+
+       	/* Call the Secure Monitor handler */
+       	mov	r1, #0
+       	mov	r0, #0
+       	smc	#0
+       endfunc bl2_run_next_image
+
 
 ### Author
 
