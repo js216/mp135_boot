@@ -25,6 +25,10 @@ goal of removing it altogether. To this end, we:
 
 - Configure all clocks from Linux
 
+- Remove remaining SMC calls
+
+- Discover what OP-TEE does before starting Linux
+
 Note that removing OP-TEE is NOT supported by official ST resources, where the
 secure OS is strongly recommended to be used for power management using the SCMI
 interface, clock configuration, ETZPC setup, etc.
@@ -1218,7 +1222,78 @@ Now we're down to about 75 SMC calls. Steps to cut it down further:
 
 With that, there is only one more SMC call remaining --- the initial SMC call
 from within OP-TEE to transfer control to Linux. In other words, OP-TEE is now
-doing nothing at all and can be removed.
+doing nothing at all after Linux gets started. However, before that happens,
+OP-TEE still does a couple things. Let's track them down.
+
+### Things OP-TEE does before starting Linux
+
+Before passing control to Linux, OP-TEE does several things:
+
+- Clear the `GPIOx_SECCFGR` bits to allow non-secure access to GPIO.
+
+- Configure the GIC interrupt controller.
+
+To be able to remove OP-TEE, we have to do these configuration tasks from TF-A,
+as follows:
+
+1. In `plat/st/stm32mp1/bl2_plat_setup.c`, add the GPIO driver header file:
+
+       #include <drivers/st/stm32_gpio.h>
+
+   Later in the same file, at the end of the function `bl2_platform_setup()`,
+   add the code to allow unsecure access to GPIO:
+
+       /* Allow non-secure access to all GPIO banks */
+       for (unsigned int bank = GPIO_BANK_A; bank <= GPIO_BANK_I; bank++) {
+       	uintptr_t base = stm32_get_gpio_bank_base(bank);
+       	unsigned long clock = stm32_get_gpio_bank_clock(bank);
+
+       	clk_enable(clock);
+       	mmio_write_32(base + GPIO_SECR_OFFSET, 0);
+       	clk_enable(clock);
+       }
+
+2. In `plat/st/stm32mp1/bl2_plat_setup.c`, call the GIC initialization function
+   at the end of `bl2_el3_plat_prepare_exit()`:
+
+       /* Initialize GIC interrupt controller */
+       stm32mp135_gic_init();
+
+   The function needs to be adapted from OP-TEE source code, as follows:
+
+       #define GICC_BASE    0xA0022000
+       #define GICD_BASE    0xA0021000
+       #define STM32MP135_GIC_MAX_REG  5
+       #define GICC_PMR                (0x004)
+
+       void stm32mp135_gic_init(void)
+       {
+       	for (size_t n = 0; n <= STM32MP135_GIC_MAX_REG; n++) {
+       		/* Disable interrupts */
+       		mmio_write_32(GICD_BASE + GICD_ICENABLER + 4*n, 0xffffffff);
+       		/* Make interrupts non-pending */
+       		mmio_write_32(GICD_BASE + GICD_ICPENDR + 4*n, 0xffffffff);
+       	};
+
+       	for (size_t n = 0; n <= STM32MP135_GIC_MAX_REG; n++) {
+       		/* Mark interrupts non-secure */
+       		if (n == 0) {
+       			/* per-CPU inerrupts config:
+       			 * ID0-ID7(SGI)	  for Non-secure interrupts
+       			 * ID8-ID15(SGI)  for Secure interrupts.
+       			 * All PPI config as Non-secure interrupts.
+       			 */
+       			mmio_write_32(GICD_BASE + GICD_IGROUPR + 4*n, 0xffff00ff);
+       		} else {
+       			mmio_write_32(GICD_BASE + GICD_IGROUPR + 4*n, 0xffffffff);
+       		}
+       	}
+
+       	/* Set the priority mask to permit Non-secure interrupts, and to
+       	 * allow the Non-secure world to adjust the priority mask itself
+       	 */
+       	mmio_write_32(GICC_BASE + GICC_PMR, GIC_HIGHEST_NS_PRIORITY);
+       }
 
 ### Author
 
