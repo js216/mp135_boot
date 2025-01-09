@@ -37,8 +37,8 @@ The files are as follows:
 - `tfa_falcon`: Use Arm Trusted Firmware (TF-A) to load the Linux kernel without
   U-Boot, a variant of "falcon mode" boot
 
-- `remove_optee`: (Work in progress!) Remove OP-TEE, reallocating STPMIC1
-  control to the Linux kernel driver, and clock/ETZPC configuration to TF-A.
+- `remove_optee`: Remove OP-TEE, reallocating STPMIC1 control to the Linux
+  kernel driver, and clock/ETZPC/TZC configuration to TF-A.
 
 ### Author
 
