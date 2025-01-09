@@ -1434,6 +1434,70 @@ as follows:
        	smc	#0
        endfunc bl2_run_next_image
 
+3. In `plat/st/stm32mp1/bl2_plat_setup.c`, add the header files for TrustZone
+   memory protection:
+
+       #include <drivers/arm/tzc400.h>
+       #include <dt-bindings/soc/stm32mp13-tzc400.h>
+
+   In the same file, remove function `prepare_encryption()` entirely. Remove the
+   body of the function `bl2_plat_handle_post_image_load()` and replace it with
+   a simple `return 0;`.
+
+   In `bl2_el3_plat_prepare_exit()`, remove the statement
+   `stm32mp1_security_setup();` and replace it with the following:
+
+       /* Configure TrustZone memory protection */
+       tzc400_init(STM32MP1_TZC_BASE);
+       tzc400_disable_filters();
+       tzc400_configure_region0(TZC_REGION_S_NONE, TZC_REGION_NSEC_ALL_ACCESS_RDWR);
+       tzc400_set_action(TZC_ACTION_INT);
+       tzc400_enable_filters();
+
+Now that OP-TEE no longer runs, there is no need to load it in the FIP package
+or the memory. Remove it as follows:
+
+1. In TF-A (`bl2/aarch32/bl2_run_next_image.S`), in `bl2_run_next_image`,
+    replace `ENTRY_POINT_INFO_LR_SVC_OFFSET` with `ENTRY_POINT_INFO_PC_OFFSET`.
+
+2. In `plat/st/stm32mp1/plat_bl2_mem_params_desc.c`, remove the entries
+   corresponding to `BL32_IMAGE_ID`, `BL32_EXTRA1_IMAGE_ID`,
+   `BL32_EXTRA2_IMAGE_ID`, and `TOS_FW_CONFIG_ID`.
+
+   In entries for `HW_CONFIG_ID` and `BL33_IMAGE_ID`, replace
+   `IMAGE_ATTRIB_SKIP_LOADING` with `0`.
+
+   For all three entries, fill out the `image_base` and `image_max_size` fields,
+   as follows. For `FW_CONFIG_ID`, add:
+
+      .image_info.image_base = STM32MP_FW_CONFIG_BASE,
+      .image_info.image_max_size = STM32MP_FW_CONFIG_MAX_SIZE,
+
+   For `HW_CONFIG_ID`, add:
+
+       .image_info.image_base = STM32MP_HW_CONFIG_BASE,
+       .image_info.image_max_size = STM32MP_HW_CONFIG_MAX_SIZE,
+
+   For `BL33_IMAGE_ID`, add:
+
+       .image_info.image_base = STM32MP_BL33_BASE,
+       .image_info.image_max_size = STM32MP_BL33_MAX_SIZE,
+
+   For `BL33_IMAGE_ID`, add the `EP_FIRST_EXE` flag to the flags already given
+   in `SET_STATIC_PARAM_HEAD()`. Add the following line:
+
+       .ep_info.pc = STM32MP_BL33_BASE,
+
+3. In Buildroot configuration (`make menuconfig`), under Bootloaders, disable
+   `optee_os` (`BR2_TARGET_OPTEE_OS`).
+
+   Under "Additional ATF build variables"
+   (`BR2_TARGET_ARM_TRUSTED_FIRMWARE_ADDITIONAL_VARIABLES`), remove
+   `AARCH32_SP=optee`.
+
+4. In the TF-A Makefile, remove the line that says `NEED_BL32 := yes`.
+
+All the above changes to TF-A can also be found in `0003-remove-optee.patch`.
 
 ### Author
 

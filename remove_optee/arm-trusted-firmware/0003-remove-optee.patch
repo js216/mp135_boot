@@ -1,0 +1,587 @@
+diff --git a/Makefile b/Makefile
+index e78ea1b..73c7d52 100644
+--- a/Makefile
++++ b/Makefile
+@@ -686,7 +686,6 @@ endif
+ include lib/cpus/cpu-ops.mk
+ 
+ ifeq (${ARCH},aarch32)
+-NEED_BL32 := yes
+ 
+ ################################################################################
+ # Build `AARCH32_SP` as BL32 image for AArch32
+diff --git a/bl2/aarch32/bl2_run_next_image.S b/bl2/aarch32/bl2_run_next_image.S
+index 0b3554e..e81a7e5 100644
+--- a/bl2/aarch32/bl2_run_next_image.S
++++ b/bl2/aarch32/bl2_run_next_image.S
+@@ -8,8 +8,75 @@
+ #include <asm_macros.S>
+ #include <common/bl_common.h>
+ 
++#define CPSR_MODE_SVC	U(0x13)
++#define CPSR_I		BIT(7)
++#define CPSR_F		BIT(6)
++
++#define SCR_NS		(1U << 0)
++
++#define ACTLR_SMP	(1U << 6)
++
++#define SCTLR_M		(1U << 0)
++#define SCTLR_C		(1U << 2)
++#define SCTLR_I		(1U << 12)
++#define SCTLR_TE	(1U << 30)
++#define SCTLR_SPAN	(1U << 23)
++#define SCTLR_A		(1U << 1)
++
+ 	.globl	bl2_run_next_image
+ 
++.macro write_actlr reg
++mcr     p15, 0, \reg, c1, c0, 1
++.endm
++
++.macro read_actlr reg
++mrc     p15, 0, \reg, c1, c0, 1
++.endm
++
++.macro read_sctlr reg
++mrc     p15, 0, \reg, c1, c0, 0
++.endm
++
++.macro write_sctlr reg
++mcr     p15, 0, \reg, c1, c0, 0
++.endm
++
++.macro write_mvbar reg
++mcr     p15, 0, \reg, c12, c0, 1
++.endm
++
++.macro read_scr reg
++mrc     p15, 0, \reg, c1, c1, 0
++.endm
++
++.macro write_scr reg
++mcr     p15, 0, \reg, c1, c1, 0
++.endm
++
++func sm_smc_entry
++	/* Update SCR */
++	read_scr r0
++	orr	r0, r0, #SCR_NS
++	write_scr r0
++	mov	r0, #0
++
++	/* Return from the secure monitor call */
++	push	{r4}
++	push	{r3}
++	rfefd	sp
++endfunc sm_smc_entry
++
++func sm_vect_table
++.balign 32
++	b	.		/* Reset			*/
++	b	.		/* Undefined instruction	*/
++	b	sm_smc_entry	/* Secure monitor call		*/
++	b	.		/* Prefetch abort		*/
++	b	.		/* Data abort			*/
++	b	.		/* Reserved			*/
++	b	.		/* IRQ				*/
++	b	.		/* FIQ				*/
++endfunc sm_vect_table
+ 
+ func bl2_run_next_image
+ 	mov	r8,r0
+@@ -27,20 +94,38 @@ func bl2_run_next_image
+ 	mov	r0, r8
+ 	bl	bl2_el3_plat_prepare_exit
+ 
+-	/*
+-	 * Extract PC and SPSR based on struct `entry_point_info_t`
+-	 * and load it in LR and SPSR registers respectively.
+-	 */
+-	ldr	lr, [r8, #ENTRY_POINT_INFO_PC_OFFSET]
+-	ldr	r1, [r8, #(ENTRY_POINT_INFO_PC_OFFSET + 4)]
+-	msr	spsr_xc, r1
++	/* Enable coherent requests to the processor */
++	read_actlr r0
++	orr	r0, r0, #ACTLR_SMP
++	write_actlr r0
+ 
+-	/* Some BL32 stages expect lr_svc to provide the BL33 entry address */
+-	cps	#MODE32_svc
+-	ldr	lr, [r8, #ENTRY_POINT_INFO_LR_SVC_OFFSET]
+-	cps	#MODE32_mon
++	/* Setup core configuration in CP15 SCTLR */
++	read_sctlr r0
++	bic	r0, r0, #SCTLR_M	/* disable MPU */
++	bic	r0, r0, #SCTLR_C	/* disable data and unified caches */
++	bic	r0, r0, #SCTLR_I	/* disable instruction caches */
++	bic	r0, r0, #SCTLR_TE	/* exceptions taken in ARM state */
++	orr	r0, r0, #SCTLR_SPAN
++	bic	r0, r0, #SCTLR_A	/* disable alignment fault checking */
++	write_sctlr r0
++	isb
++
++	/* Set monitor vector (MVBAR) */
++	ldr	r0, =sm_vect_table
++	write_mvbar r0
++
++	/* Will switch to SVC mode with IRQ and FIQ disabled */
++	mov	r4, #(CPSR_MODE_SVC | CPSR_I | CPSR_F)
+ 
++	/* Linux entry address */
++	ldr	r3, [r8, #ENTRY_POINT_INFO_PC_OFFSET]
++
++	/* Linux arguments */
+ 	add	r8, r8, #ENTRY_POINT_INFO_ARGS_OFFSET
+-	ldm	r8, {r0, r1, r2, r3}
+-	exception_return
++	ldm	r8, {r0, r1, r2}
++
++	/* Call the Secure Monitor handler */
++	mov	r1, #0
++	mov	r0, #0
++	smc	#0
+ endfunc bl2_run_next_image
+diff --git a/plat/st/stm32mp1/bl2_plat_setup.c b/plat/st/stm32mp1/bl2_plat_setup.c
+index 1d6893f..42f17cf 100644
+--- a/plat/st/stm32mp1/bl2_plat_setup.c
++++ b/plat/st/stm32mp1/bl2_plat_setup.c
+@@ -34,13 +34,17 @@
+ #include <lib/optee_utils.h>
+ #include <lib/xlat_tables/xlat_tables_v2.h>
+ #include <plat/common/platform.h>
+-#include <drivers/st/etzpc.h>
+ 
+ #include <platform_def.h>
+ #include <stm32mp_common.h>
+ #include <stm32mp1_context.h>
+ #include <stm32mp1_dbgmcu.h>
+ 
++#include <drivers/st/etzpc.h>
++#include <drivers/st/stm32_gpio.h>
++#include <drivers/arm/tzc400.h>
++#include <dt-bindings/soc/stm32mp13-tzc400.h>
++
+ #define PLL1_NOMINAL_FREQ_IN_KHZ	650000U /* 650MHz */
+ 
+ #if !STM32MP1_OPTEE_IN_SYSRAM
+@@ -163,6 +167,40 @@ void bl2_el3_early_platform_setup(u_register_t arg0,
+ 	stm32mp_save_boot_ctx_address(arg0);
+ }
+ 
++#define GICC_BASE    0xA0022000
++#define GICD_BASE    0xA0021000
++#define STM32MP135_GIC_MAX_REG  5
++#define GICC_PMR                (0x004)
++
++void stm32mp135_gic_init(void)
++{
++	for (size_t n = 0; n <= STM32MP135_GIC_MAX_REG; n++) {
++		/* Disable interrupts */
++		mmio_write_32(GICD_BASE + GICD_ICENABLER + 4*n, 0xffffffff);
++		/* Make interrupts non-pending */
++		mmio_write_32(GICD_BASE + GICD_ICPENDR + 4*n, 0xffffffff);
++	};
++
++	for (size_t n = 0; n <= STM32MP135_GIC_MAX_REG; n++) {
++		/* Mark interrupts non-secure */
++		if (n == 0) {
++			/* per-CPU inerrupts config:
++			 * ID0-ID7(SGI)	  for Non-secure interrupts
++			 * ID8-ID15(SGI)  for Secure interrupts.
++			 * All PPI config as Non-secure interrupts.
++			 */
++			mmio_write_32(GICD_BASE + GICD_IGROUPR + 4*n, 0xffff00ff);
++		} else {
++			mmio_write_32(GICD_BASE + GICD_IGROUPR + 4*n, 0xffffffff);
++		}
++	}
++
++	/* Set the priority mask to permit Non-secure interrupts, and to
++	 * allow the Non-secure world to adjust the priority mask itself
++	 */
++	mmio_write_32(GICC_BASE + GICC_PMR, GIC_HIGHEST_NS_PRIORITY);
++}
++
+ void bl2_platform_setup(void)
+ {
+ 	int ret;
+@@ -250,6 +288,16 @@ void bl2_platform_setup(void)
+ 	/* Allow non-secure access to all RTC registers */
+ #define RTC_SECCFGR 0x20
+ 	mmio_write_32(RTC_BASE + RTC_SECCFGR, 0);
++
++	/* Allow non-secure access to all GPIO banks */
++	for (unsigned int bank = GPIO_BANK_A; bank <= GPIO_BANK_I; bank++) {
++		uintptr_t base = stm32_get_gpio_bank_base(bank);
++		unsigned long clock = stm32_get_gpio_bank_clock(bank);
++
++		clk_enable(clock);
++		mmio_write_32(base + GPIO_SECR_OFFSET, 0);
++		clk_enable(clock);
++	}
+ }
+ 
+ #if STM32MP15
+@@ -476,230 +524,13 @@ skip_console_init:
+ 	}
+ }
+ 
+-#if STM32MP13
+-static void prepare_encryption(void)
+-{
+-	uint8_t mkey[MCE_KEY_SIZE_IN_BYTES];
+-
+-	stm32_mce_init();
+-
+-	if (stm32mp_is_wakeup_from_standby()) {
+-		stm32mp1_pm_get_mce_mkey_from_context(mkey);
+-		stm32_mce_reload_configuration();
+-	} else {
+-		/* Generate MCE master key from RNG */
+-		if (stm32_rng_read(mkey, MCE_KEY_SIZE_IN_BYTES) != 0) {
+-			panic();
+-		}
+-
+-		stm32mp1_pm_save_mce_mkey_in_context(mkey);
+-	}
+-
+-	if (stm32_mce_write_master_key(mkey) != 0) {
+-		panic();
+-	}
+-
+-	stm32_mce_lock_master_key();
+-}
+-#endif
+-
+ /*******************************************************************************
+  * This function can be used by the platforms to update/use image
+  * information for given `image_id`.
+  ******************************************************************************/
+ int bl2_plat_handle_post_image_load(unsigned int image_id)
+ {
+-	int err = 0;
+-	bl_mem_params_node_t *bl_mem_params = get_bl_mem_params_node(image_id);
+-	bl_mem_params_node_t *bl32_mem_params;
+-	bl_mem_params_node_t *pager_mem_params __unused;
+-	bl_mem_params_node_t *paged_mem_params __unused;
+-	const struct dyn_cfg_dtb_info_t *config_info;
+-	bl_mem_params_node_t *tos_fw_mem_params;
+-	unsigned int i;
+-	unsigned int idx;
+-	unsigned long long ddr_top __unused;
+-	bool wakeup_ddr_sr = stm32mp1_ddr_is_restored();
+-	const unsigned int image_ids[] = {
+-		BL32_IMAGE_ID,
+-		BL33_IMAGE_ID,
+-		HW_CONFIG_ID,
+-		TOS_FW_CONFIG_ID,
+-	};
+-
+-	assert(bl_mem_params != NULL);
+-
+-	switch (image_id) {
+-	case FW_CONFIG_ID:
+-#if STM32MP13
+-		if (stm32mp_is_closed_device() || stm32mp_is_auth_supported()) {
+-			prepare_encryption();
+-		}
+-#endif
+-		if (stm32mp_skip_boot_device_after_standby()) {
+-			return 0;
+-		}
+-
+-		/* Set global DTB info for fixed fw_config information */
+-		set_config_info(STM32MP_FW_CONFIG_BASE, ~0UL, STM32MP_FW_CONFIG_MAX_SIZE,
+-				FW_CONFIG_ID);
+-		fconf_populate("FW_CONFIG", STM32MP_FW_CONFIG_BASE);
+-
+-		idx = dyn_cfg_dtb_info_get_index(TOS_FW_CONFIG_ID);
+-
+-		/* Iterate through all the fw config IDs */
+-		for (i = 0U; i < ARRAY_SIZE(image_ids); i++) {
+-			if ((image_ids[i] == TOS_FW_CONFIG_ID) && (idx == FCONF_INVALID_IDX)) {
+-				continue;
+-			}
+-
+-			bl_mem_params = get_bl_mem_params_node(image_ids[i]);
+-			assert(bl_mem_params != NULL);
+-
+-			config_info = FCONF_GET_PROPERTY(dyn_cfg, dtb, image_ids[i]);
+-			if (config_info == NULL) {
+-				continue;
+-			}
+-
+-			bl_mem_params->image_info.image_base = config_info->config_addr;
+-			bl_mem_params->image_info.image_max_size = config_info->config_max_size;
+-
+-			/*
+-			 * If going back from CSTANDBY / STANDBY and DDR was in Self-Refresh,
+-			 * DDR partitions must not be reloaded.
+-			 */
+-			if (!(wakeup_ddr_sr && (config_info->config_addr >= STM32MP_DDR_BASE))) {
+-				bl_mem_params->image_info.h.attr &= ~IMAGE_ATTRIB_SKIP_LOADING;
+-			}
+-
+-			switch (image_ids[i]) {
+-			case BL32_IMAGE_ID:
+-				bl_mem_params->ep_info.pc = config_info->config_addr;
+-
+-				/* In case of OPTEE, initialize address space with tos_fw addr */
+-				pager_mem_params = get_bl_mem_params_node(BL32_EXTRA1_IMAGE_ID);
+-				assert(pager_mem_params != NULL);
+-				pager_mem_params->image_info.image_base = config_info->config_addr;
+-				pager_mem_params->image_info.image_max_size =
+-					config_info->config_max_size;
+-
+-				/* Init base and size for pager if exist */
+-				paged_mem_params = get_bl_mem_params_node(BL32_EXTRA2_IMAGE_ID);
+-				if (paged_mem_params != NULL) {
+-					paged_mem_params->image_info.image_base = STM32MP_DDR_BASE +
+-						(dt_get_ddr_size() - STM32MP_DDR_S_SIZE);
+-					paged_mem_params->image_info.image_max_size =
+-						STM32MP_DDR_S_SIZE;
+-				}
+-				break;
+-
+-			case BL33_IMAGE_ID:
+-				if (wakeup_ddr_sr) {
+-					/*
+-					 * Set ep_info PC to 0, to inform BL32 it is a reset
+-					 * after STANDBY
+-					 */
+-					bl_mem_params->ep_info.pc = 0U;
+-				} else {
+-					bl_mem_params->ep_info.pc = config_info->config_addr;
+-				}
+-				break;
+-
+-			case HW_CONFIG_ID:
+-			case TOS_FW_CONFIG_ID:
+-				break;
+-
+-			default:
+-				return -EINVAL;
+-			}
+-		}
+-		break;
+-
+-	case BL32_IMAGE_ID:
+-		if (wakeup_ddr_sr && stm32mp_skip_boot_device_after_standby()) {
+-			bl_mem_params->ep_info.pc = stm32_pm_get_optee_ep();
+-			if (stm32mp1_addr_inside_backupsram(bl_mem_params->ep_info.pc)) {
+-				clk_enable(BKPSRAM);
+-			}
+-			break;
+-		}
+-
+-		if (optee_header_is_valid(bl_mem_params->image_info.image_base)) {
+-			image_info_t *paged_image_info = NULL;
+-
+-			/* BL32 is OP-TEE header */
+-			bl_mem_params->ep_info.pc = bl_mem_params->image_info.image_base;
+-
+-			pager_mem_params = get_bl_mem_params_node(BL32_EXTRA1_IMAGE_ID);
+-			assert(pager_mem_params != NULL);
+-
+-			paged_mem_params = get_bl_mem_params_node(BL32_EXTRA2_IMAGE_ID);
+-			if (paged_mem_params != NULL) {
+-				paged_image_info = &paged_mem_params->image_info;
+-			}
+-
+-			err = parse_optee_header(&bl_mem_params->ep_info,
+-						 &pager_mem_params->image_info,
+-						 paged_image_info);
+-			if (err != 0) {
+-				ERROR("OPTEE header parse error.\n");
+-				panic();
+-			}
+-
+-			/* Set optee boot info from parsed header data */
+-			if (paged_mem_params != NULL) {
+-				bl_mem_params->ep_info.args.arg0 =
+-					paged_mem_params->image_info.image_base;
+-			} else {
+-				bl_mem_params->ep_info.args.arg0 = 0U;
+-			}
+-
+-			bl_mem_params->ep_info.args.arg1 = 0U; /* Unused */
+-			bl_mem_params->ep_info.args.arg2 = 0U; /* No DT supported */
+-		} else {
+-			bl_mem_params->ep_info.pc = bl_mem_params->image_info.image_base;
+-			tos_fw_mem_params = get_bl_mem_params_node(TOS_FW_CONFIG_ID);
+-			assert(tos_fw_mem_params != NULL);
+-			bl_mem_params->image_info.image_max_size +=
+-				tos_fw_mem_params->image_info.image_max_size;
+-			bl_mem_params->ep_info.args.arg0 = 0;
+-		}
+-
+-		if (bl_mem_params->ep_info.pc >= STM32MP_DDR_BASE) {
+-			stm32_context_save_bl2_param();
+-		}
+-		break;
+-
+-	case BL33_IMAGE_ID:
+-		bl32_mem_params = get_bl_mem_params_node(BL32_IMAGE_ID);
+-		assert(bl32_mem_params != NULL);
+-		bl32_mem_params->ep_info.lr_svc = bl_mem_params->ep_info.pc;
+-#if PSA_FWU_SUPPORT
+-		if (plat_fwu_is_enabled()) {
+-			stm32mp1_fwu_set_boot_idx();
+-		}
+-#endif /* PSA_FWU_SUPPORT */
+-		break;
+-
+-	default:
+-		/* Do nothing in default case */
+-		break;
+-	}
+-
+-#if STM32MP_SDMMC || STM32MP_EMMC
+-	/*
+-	 * Invalidate remaining data read from MMC but not flushed by load_image_flush().
+-	 * We take the worst case which is 2 MMC blocks.
+-	 */
+-	if ((image_id != FW_CONFIG_ID) &&
+-	    ((bl_mem_params->image_info.h.attr & IMAGE_ATTRIB_SKIP_LOADING) == 0U)) {
+-		inv_dcache_range(bl_mem_params->image_info.image_base +
+-				 bl_mem_params->image_info.image_size,
+-				 2U * MMC_BLOCK_SIZE);
+-	}
+-#endif /* STM32MP_SDMMC || STM32MP_EMMC */
+-
+-	return err;
++	return 0;
+ }
+ 
+ void bl2_el3_plat_prepare_exit(void)
+@@ -725,8 +556,16 @@ void bl2_el3_plat_prepare_exit(void)
+ 	}
+ #endif
+ 
+-	stm32mp1_security_setup();
++	/* Configure TrustZone memory protection */
++	tzc400_init(STM32MP1_TZC_BASE);
++	tzc400_disable_filters();
++	tzc400_configure_region0(TZC_REGION_S_NONE, TZC_REGION_NSEC_ALL_ACCESS_RDWR);
++	tzc400_set_action(TZC_ACTION_INT);
++	tzc400_enable_filters();
+ 
+ 	/* end of boot mode */
+ 	stm32mp1_syscfg_boot_mode_disable();
++
++	/* Initialize GIC interrupt controller */
++	stm32mp135_gic_init();
+ }
+diff --git a/plat/st/stm32mp1/plat_bl2_mem_params_desc.c b/plat/st/stm32mp1/plat_bl2_mem_params_desc.c
+index 9f1a3e5..349e8e6 100644
+--- a/plat/st/stm32mp1/plat_bl2_mem_params_desc.c
++++ b/plat/st/stm32mp1/plat_bl2_mem_params_desc.c
+@@ -35,56 +35,6 @@ static bl_mem_params_node_t bl2_mem_params_descs[] = {
+ 		.next_handoff_image_id = INVALID_IMAGE_ID,
+ 	},
+ 
+-	/* Fill BL32 related information */
+-	{
+-		.image_id = BL32_IMAGE_ID,
+-
+-		SET_STATIC_PARAM_HEAD(ep_info, PARAM_EP,
+-				      VERSION_2, entry_point_info_t,
+-				      SECURE | EXECUTABLE | EP_FIRST_EXE),
+-
+-		.ep_info.spsr = SPSR_MODE32(MODE32_svc, SPSR_T_ARM,
+-					    SPSR_E_LITTLE,
+-					    DISABLE_ALL_EXCEPTIONS),
+-
+-		SET_STATIC_PARAM_HEAD(image_info, PARAM_EP,
+-				      VERSION_2, image_info_t,
+-				      IMAGE_ATTRIB_SKIP_LOADING),
+-
+-		.next_handoff_image_id = BL33_IMAGE_ID,
+-	},
+-
+-	/* Fill BL32 external 1 image related information */
+-	{
+-		.image_id = BL32_EXTRA1_IMAGE_ID,
+-
+-		SET_STATIC_PARAM_HEAD(ep_info, PARAM_EP,
+-				      VERSION_2, entry_point_info_t,
+-				      SECURE | NON_EXECUTABLE),
+-
+-		SET_STATIC_PARAM_HEAD(image_info, PARAM_EP,
+-				      VERSION_2, image_info_t,
+-				      IMAGE_ATTRIB_SKIP_LOADING),
+-
+-		.next_handoff_image_id = INVALID_IMAGE_ID,
+-	},
+-#if STM32MP15
+-	/* Fill BL32 external 2 image related information */
+-	{
+-		.image_id = BL32_EXTRA2_IMAGE_ID,
+-
+-		SET_STATIC_PARAM_HEAD(ep_info, PARAM_EP,
+-				      VERSION_2, entry_point_info_t,
+-				      SECURE | NON_EXECUTABLE),
+-
+-		SET_STATIC_PARAM_HEAD(image_info, PARAM_EP,
+-				      VERSION_2, image_info_t,
+-				      IMAGE_ATTRIB_SKIP_LOADING),
+-
+-		.next_handoff_image_id = INVALID_IMAGE_ID,
+-	},
+-#endif
+-
+ 	/* Fill HW_CONFIG related information if it exists */
+ 	{
+ 		.image_id = HW_CONFIG_ID,
+@@ -93,22 +43,12 @@ static bl_mem_params_node_t bl2_mem_params_descs[] = {
+ 				      NON_SECURE | NON_EXECUTABLE),
+ 		SET_STATIC_PARAM_HEAD(image_info, PARAM_IMAGE_BINARY,
+ 				      VERSION_2, image_info_t,
+-				      IMAGE_ATTRIB_SKIP_LOADING),
++				      0),
+ 
+ 		.next_handoff_image_id = INVALID_IMAGE_ID,
+-	},
+-
+-	/* Fill TOS_FW_CONFIG related information if it exists */
+-	{
+-		.image_id = TOS_FW_CONFIG_ID,
+-		SET_STATIC_PARAM_HEAD(ep_info, PARAM_IMAGE_BINARY,
+-				      VERSION_2, entry_point_info_t,
+-				      SECURE | NON_EXECUTABLE),
+-		SET_STATIC_PARAM_HEAD(image_info, PARAM_IMAGE_BINARY,
+-				      VERSION_2, image_info_t,
+-				      IMAGE_ATTRIB_SKIP_LOADING),
+ 
+-		.next_handoff_image_id = INVALID_IMAGE_ID,
++		.image_info.image_base = STM32MP_HW_CONFIG_BASE,
++		.image_info.image_max_size = STM32MP_HW_CONFIG_MAX_SIZE,
+ 	},
+ 
+ 	/* Fill BL33 related information */
+@@ -117,7 +57,9 @@ static bl_mem_params_node_t bl2_mem_params_descs[] = {
+ 
+ 		SET_STATIC_PARAM_HEAD(ep_info, PARAM_EP,
+ 				      VERSION_2, entry_point_info_t,
+-				      NON_SECURE | EXECUTABLE),
++				      NON_SECURE | EXECUTABLE | EP_FIRST_EXE),
++
++		.ep_info.pc = STM32MP_BL33_BASE,
+ 
+ #if BL33_HYP
+ 		.ep_info.spsr = SPSR_MODE32(MODE32_hyp, SPSR_T_ARM,
+@@ -129,9 +71,12 @@ static bl_mem_params_node_t bl2_mem_params_descs[] = {
+ 
+ 		SET_STATIC_PARAM_HEAD(image_info, PARAM_EP,
+ 				      VERSION_2, image_info_t,
+-				      IMAGE_ATTRIB_SKIP_LOADING),
++				      0),
+ 
+ 		.next_handoff_image_id = INVALID_IMAGE_ID,
++
++		.image_info.image_base = STM32MP_BL33_BASE,
++		.image_info.image_max_size = STM32MP_BL33_MAX_SIZE,
+ 	}
+ };
+ 
