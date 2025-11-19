@@ -26,7 +26,7 @@ SOURCES = \
 	 Drivers/STM32MP13xx_DISCO/stm32mp13xx_disco_stpmic1.c \
 
 INCLUDES = \
-	 -Isrc \
+	 -ISrc \
 	 -IDrivers/CMSIS/Core_A/Include \
 	 -IDrivers/CMSIS/Device/ST/STM32MP13xx/Include \
 	 -IDrivers/STM32MP13xx_HAL_Driver/Inc \
