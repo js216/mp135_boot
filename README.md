@@ -23,8 +23,6 @@ The files are as follows:
 - `blink_noide`: "Blink" program done without an IDE, compiled using arm-gcc
   with a simple Makefile
 
-- `blink_custom`: Same as `blink_noide`, but simplified for a custom board
-
 - `ddr_test`: Initialize DDR3L memory, fill it with pseudorandom bits, and
   confirm that reading from the memory returns the same bit sequence
 
