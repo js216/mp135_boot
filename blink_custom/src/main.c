@@ -1,8 +1,6 @@
 #include <stdio.h>
 
 #include "stm32mp13xx_hal.h"
-#include "stm32mp13xx_disco.h"
-#include "stm32mp13xx_disco_stpmic1.h"
 
 void Error_Handler(void);
 
@@ -16,8 +14,6 @@ int main(void)
 {
    HAL_Init();
    SystemClock_Config();
-   BSP_PMIC_Init();
-   BSP_PMIC_InitRegulators();
 
    PeriphCommonClock_Config();
    MX_UART4_Init();

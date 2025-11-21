@@ -6,41 +6,28 @@ LINKSCR    = stm32mp13xx_a7_sysram.ld
 
 SOURCES = \
 	 src/main.c \
-	 drivers/syscalls.c \
 	 drivers/mmu_stm32mp13xx.c \
 	 drivers/system_stm32mp13xx_A7.c \
 	 drivers/startup_stm32mp135fxx_ca7.c \
+	 drivers/syscalls.c \
 	 drivers/irq_ctrl_gic.c \
-	 drivers/STM32MP13xx_HAL_Driver/Src/stm32mp13xx_hal.c \
-	 drivers/STM32MP13xx_HAL_Driver/Src/stm32mp13xx_hal_dma.c \
-	 drivers/STM32MP13xx_HAL_Driver/Src/stm32mp13xx_hal_dma_ex.c \
-	 drivers/STM32MP13xx_HAL_Driver/Src/stm32mp13xx_hal_exti.c \
-	 drivers/STM32MP13xx_HAL_Driver/Src/stm32mp13xx_hal_gpio.c \
-	 drivers/STM32MP13xx_HAL_Driver/Src/stm32mp13xx_hal_i2c.c \
-	 drivers/STM32MP13xx_HAL_Driver/Src/stm32mp13xx_hal_rcc.c \
-	 drivers/STM32MP13xx_HAL_Driver/Src/stm32mp13xx_hal_rcc_ex.c \
-	 drivers/STM32MP13xx_HAL_Driver/Src/stm32mp13xx_hal_uart.c \
-	 drivers/STM32MP13xx_HAL_Driver/Src/stm32mp13xx_hal_uart_ex.c \
-	 drivers/STM32MP13xx_DISCO/stm32mp13xx_disco.c \
-	 drivers/STM32MP13xx_DISCO/stm32mp13xx_disco_bus.c \
-	 drivers/STM32MP13xx_DISCO/stm32mp13xx_disco_stpmic1.c \
-
-INCLUDES = \
-	 -Isrc \
-	 -Idrivers \
-	 -IDrivers/STM32MP13xx_HAL_Driver/Inc \
-	 -IDrivers/STM32MP13xx_DISCO \
+	 drivers/stm32mp13xx_hal.c \
+	 drivers/stm32mp13xx_hal_gpio.c \
+	 drivers/stm32mp13xx_hal_rcc.c \
+	 drivers/stm32mp13xx_hal_rcc_ex.c \
+	 drivers/stm32mp13xx_hal_uart.c \
+	 drivers/stm32mp13xx_hal_uart_ex.c \
 
 CFLAGS = \
 	 -g2 \
 	 -O0 \
+	 -Isrc -Idrivers \
 	 -fno-common \
 	 -DUSE_FULL_LL_DRIVER \
 	 -DSTM32MP135Fxx \
 	 -DSTM32MP1 \
 	 -DCORE_CA7 \
 	 -mcpu=cortex-a7 -march=armv7ve -mfpu=neon-vfpv4 -mlittle-endian -mfloat-abi=hard \
-	 $(INCLUDES) \
 	 -fdata-sections -ffunction-sections \
 	 -nostartfiles \
 	 -ffreestanding \
