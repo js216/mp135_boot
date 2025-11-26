@@ -9,33 +9,29 @@ SOURCES = \
 	 src/ddr_tool_util.c \
 	 src/main.c \
 	 src/stm32mp13xx_hal_msp.c \
-	 src/stm32mp13xx_it.c \
-	 src/system_time.c \
-	 Drivers/mmu_stm32mp13xx.c \
-	 Drivers/system_stm32mp13xx_A7.c \
-	 Drivers/startup_stm32mp135fxx_ca7.c \
-	 Drivers/CMSIS/Core_A/Source/irq_ctrl_gic.c \
-	 Drivers/STM32MP13xx_HAL_Driver/Src/stm32mp13xx_hal.c \
-	 Drivers/STM32MP13xx_HAL_Driver/Src/stm32mp13xx_hal_ddr.c \
-	 Drivers/STM32MP13xx_HAL_Driver/Src/stm32mp13xx_hal_dma.c \
-	 Drivers/STM32MP13xx_HAL_Driver/Src/stm32mp13xx_hal_dma_ex.c \
-	 Drivers/STM32MP13xx_HAL_Driver/Src/stm32mp13xx_hal_gpio.c \
-	 Drivers/STM32MP13xx_HAL_Driver/Src/stm32mp13xx_hal_i2c.c \
-	 Drivers/STM32MP13xx_HAL_Driver/Src/stm32mp13xx_hal_rcc.c \
-	 Drivers/STM32MP13xx_HAL_Driver/Src/stm32mp13xx_hal_rcc_ex.c \
-	 Drivers/STM32MP13xx_HAL_Driver/Src/stm32mp13xx_hal_uart.c \
-	 Drivers/STM32MP13xx_HAL_Driver/Src/stm32mp13xx_hal_uart_ex.c \
-	 Drivers/STM32MP13xx_DISCO/stm32mp13xx_disco.c \
-	 Drivers/STM32MP13xx_DISCO/stm32mp13xx_disco_bus.c \
-	 Drivers/STM32MP13xx_DISCO/stm32mp13xx_disco_stpmic1.c \
-	 Drivers/STM32MP13xx_DISCO/stm32mp13xx_power.c \
+	 src/syscalls.c \
+	 drivers/hal/stm32mp13xx_hal.c \
+	 drivers/hal/stm32mp13xx_hal_ddr.c \
+	 drivers/hal/stm32mp13xx_hal_dma.c \
+	 drivers/hal/stm32mp13xx_hal_gpio.c \
+	 drivers/hal/stm32mp13xx_hal_i2c.c \
+	 drivers/hal/stm32mp13xx_hal_i2c_ex.c \
+	 drivers/hal/stm32mp13xx_hal_rcc.c \
+	 drivers/hal/stm32mp13xx_hal_rcc_ex.c \
+	 drivers/hal/stm32mp13xx_hal_uart.c \
+	 drivers/hal/stm32mp13xx_hal_uart_ex.c \
+	 drivers/CMSIS/irq_ctrl_gic.c \
+	 drivers/CMSIS/startup_stm32mp135c_ca7.c \
+	 drivers/CMSIS/system_stm32mp13xx_A7.c \
+	 drivers/disco/stm32mp13xx_disco_bus.c \
+	 drivers/disco/stm32mp13xx_disco_stpmic1.c \
+	 drivers/disco/stm32mp13xx_power.c \
 
 INCLUDES = \
-	 -Isrc \
-	 -IDrivers/CMSIS/Core_A/Include \
-	 -IDrivers/CMSIS/Device/ST/STM32MP13xx/Include \
-	 -IDrivers/STM32MP13xx_HAL_Driver/Inc \
-	 -IDrivers/STM32MP13xx_DISCO \
+	  -Isrc \
+	  -Idrivers/CMSIS \
+	  -Idrivers/hal \
+	  -Idrivers/disco
 
 CFLAGS = \
 	 -mcpu=cortex-a7 \
@@ -67,7 +63,7 @@ LFLAGS = \
 	 -mcpu=cortex-a7 \
 	 -T"stm32mp13xx_a7_sysram.ld" \
 	 --specs=nosys.specs \
-	 -Wl,-Map="STM32MP135C-DK_DDR_UTILITIES_A7.map" \
+	 -Wl,-Map,$(BINARYNAME).map,--cref \
 	 -Wl,--gc-sections \
 	 -static \
 	 --specs=nano.specs \

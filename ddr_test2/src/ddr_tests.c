@@ -17,7 +17,7 @@
   */
 
 /* Includes ------------------------------------------------------------------*/
-#include "stm32_device_hal.h"
+#include "stm32mp13xx_hal.h"
 
 #include "stdio.h"
 #include "stdlib.h"
@@ -26,7 +26,7 @@
 #include "ddr_tests.h"
 
 #include "stm32mp_util_conf.h"
-#include "stm32mp_util_ddr_conf.h"
+#include "stm32mp13xx-ddr3-4Gb-template.h"
 
 /* Private typedef -----------------------------------------------------------*/
 /* Private define ------------------------------------------------------------*/

@@ -26,6 +26,8 @@ The files are as follows:
 - `ddr_test`: Initialize DDR3L memory, fill it with pseudorandom bits, and
   confirm that reading from the memory returns the same bit sequence
 
+- `ddr_test2`: A simplified version of the STM32DDRFW-UTIL tool
+
 - `sd_to_ddr`: Initialize SD card and DDR memory, then copy program from SD to
   DDR and execute it
 
