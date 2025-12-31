@@ -44,12 +44,21 @@ The files are as follows:
 
 - `usb_test`: Checks that USB works in a bare-metal example.
 
+### References
+
+- [SD card on bare-metal STM32MP135](https://embd.cc/sdcard-on-bare-metal-stm32mp135)
+- [Unsecuring STM32MP135 TrustZone](https://embd.cc/unsecuring-stm32mp135-trustzone)
+- [Linux Bring-Up on a Custom STM32MP135 Board](https://embd.cc/linux-bringup-on-custom-stm32mp135-board)
+- [USB Bring-Up on a Custom STM32MP135 Board](https://embd.cc/usb-bringup-on-custom-stm32mp135-board)
+- [STM32MP135 Flashing via USB with STM32CubeProg](https://embd.cc/stm32mp135-linux-cubeprog)
+- [Boot STM32MP135 Over UART With Python](https://embd.cc/boot-stm32mp135-over-uart-with-python)
+
+### Author
+
+Jakob Kastelic, Stanford Research Systems
+
 NOTE: PORTIONS OF THIS REPOSITORY CONTAIN SOURCE CODE COPYRIGHTED BY
 STMICROELECTRONICS. SUCH FILES ARE PROVIDED UNDER STMICROELECTRONICS' ORIGINAL
 LICENSE TERMS, WHICH ARE INCLUDED WITH THOSE FILES. NO RIGHTS ARE GRANTED BEYOND
 THOSE TERMS. THIS REPOSITORY MAY NOT BE USED WITH NON-ST HARDWARE UNLESS
 PERMITTED BY ST'S LICENSE. ALL PROPRIETARY NOTICES MUST REMAIN INTACT.
-
-### Author
-
-Jakob Kastelic, Stanford Research Systems

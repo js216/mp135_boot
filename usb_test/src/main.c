@@ -389,19 +389,17 @@ int main(void)
   PeriphCommonClock_Config();
   mx_uart4_init();
 
-  int i = 0;
-  while(1) {
-     printf("Hello World %d\r\n", i++);
-     HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_13);
-     HAL_Delay(1000);
+  for (int i=0; i<5; i++) {
+      HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_13);
+      HAL_Delay(1000);
   }
 
-//  MX_GPIO_Init();
-//  MX_DMA_Init();
-//  MX_USB_Device_Init();
-//  BSP_LED_Init(LED_BLUE);
-//
-//  while (1)
-//  {
-//  }
+  MX_GPIO_Init();
+  MX_DMA_Init();
+  MX_USB_Device_Init();
+  BSP_LED_Init(LED_BLUE);
+
+  while (1)
+  {
+  }
 }
